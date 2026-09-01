@@ -14,5 +14,6 @@
   },
   "esmodules": [
     "action-economy.js"
-  ]
+  ],
+  "download": "https://github.com/gzb1015/Action-Economy-Controller/releases/download/v1.0.0/action-economy-controller.zip"
 }
