@@ -285,18 +285,6 @@ if (globalThis.movementTracker) {
         async (token, movement) => {
 
             // ----------------------------------------------------
-            // GM BYPASS
-            //
-            // The GM can move tokens freely regardless of
-            // movement remaining.
-            // ----------------------------------------------------
-
-            if (game.user.isGM) {
-                return;
-            }
-
-
-            // ----------------------------------------------------
             // Only track movement during combat.
             // ----------------------------------------------------
 
@@ -394,8 +382,8 @@ if (globalThis.movementTracker) {
             // ----------------------------------------------------
 
             if (
-                cost >
-                state.remaining
+                !game.user.isGM &&
+                cost > state.remaining
             ) {
 
                 await globalThis.movementTracker.rejectMovement(
