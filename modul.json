@@ -1,0 +1,18 @@
+{
+  "id": "action-economy-controller",
+  "title": "Action Economy Controller",
+  "description": "Action, Bonus Action, Reaction, and Movement tracking for Foundry VTT.",
+  "version": "1.0.0",
+  "authors": [
+    {
+      "name": "Gavyn"
+    }
+  ],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "esmodules": [
+    "action-economy.js"
+  ]
+}
