@@ -176,7 +176,7 @@ if (globalThis.movementTracker) {
             // ----------------------------------------------------
 
             const actor =
-                token.document?.actor;
+                token.actor;
 
             if (!actor) return;
 
