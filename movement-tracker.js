@@ -54,10 +54,12 @@ if (globalThis.movementTracker) {
                 getMovementSpeed(actor);
 
             state = {
+
                 maximum,
                 remaining: maximum,
                 spent: 0,
                 dashed: false
+
             };
 
             actors.set(actor.id, state);
@@ -83,11 +85,8 @@ if (globalThis.movementTracker) {
         actors.set(actor.id, {
 
             maximum,
-
             remaining: maximum,
-
             spent: 0,
-
             dashed: false
 
         });
@@ -111,23 +110,6 @@ if (globalThis.movementTracker) {
 
     // ============================================================
     // DASH
-    //
-    // Adds one additional movement allowance equal to the
-    // actor's current walking speed.
-    //
-    // Example:
-    //
-    // Normal:
-    // maximum   = 30
-    // spent     = 10
-    // remaining = 20
-    //
-    // After Dash:
-    // maximum   = 60
-    // spent     = 10
-    // remaining = 50
-    //
-    // Dash can only be used once per turn.
     // ============================================================
 
     function dash(actor) {
@@ -140,14 +122,14 @@ if (globalThis.movementTracker) {
         if (!state) return false;
 
 
-        // --------------------------------------------------------
-        // Prevent multiple Dashes in the same turn
-        // --------------------------------------------------------
+        // Prevent Dash from being used more than once
+        // during the same turn.
 
         if (state.dashed) {
 
-            console.warn(
-                `[MOVEMENT TRACKER] ${actor.name} has already Dashed this turn.`
+            console.log(
+                `%c[MOVEMENT TRACKER] ${actor.name} already dashed this turn.`,
+                "color: yellow; font-weight: bold;"
             );
 
             ui.notifications.warn(
@@ -159,17 +141,12 @@ if (globalThis.movementTracker) {
         }
 
 
-        // --------------------------------------------------------
-        // Get movement speed
-        // --------------------------------------------------------
-
         const movementSpeed =
             getMovementSpeed(actor);
 
 
-        // --------------------------------------------------------
-        // Add another movement allowance
-        // --------------------------------------------------------
+        // Add the character's normal movement speed
+        // to the current movement allowance.
 
         state.maximum += movementSpeed;
 
@@ -178,21 +155,13 @@ if (globalThis.movementTracker) {
         state.dashed = true;
 
 
-        // --------------------------------------------------------
-        // Log
-        // --------------------------------------------------------
-
         console.log(
-            `%c[MOVEMENT TRACKER] DASH ${actor.name} → +${movementSpeed} ft | ` +
-            `${state.remaining} ft remaining | ` +
-            `${state.maximum} ft maximum`,
-            "color: yellow; font-weight: bold;"
+            `%c[MOVEMENT TRACKER] DASH ${actor.name} → ` +
+            `+${movementSpeed} ft | ` +
+            `${state.remaining} ft remaining`,
+            "color: cyan; font-weight: bold;"
         );
 
-
-        // --------------------------------------------------------
-        // Update tracker UI
-        // --------------------------------------------------------
 
         globalThis.AECTrackerUI?.updateMovement(
             state.spent,
@@ -200,12 +169,8 @@ if (globalThis.movementTracker) {
         );
 
 
-        // --------------------------------------------------------
-        // Notification
-        // --------------------------------------------------------
-
         ui.notifications.info(
-            `${actor.name}: Dash used. +${movementSpeed} ft movement.`
+            `${actor.name}: Dash activated! +${movementSpeed} ft movement.`
         );
 
 
@@ -265,9 +230,9 @@ if (globalThis.movementTracker) {
 
         reset,
 
-        recordMovement,
+        dash,
 
-        dash
+        recordMovement
 
     };
 
@@ -346,17 +311,11 @@ if (globalThis.movementTracker) {
             proto.constrainMovementPath =
                 function(waypoints, options) {
 
-                    // ------------------------------------------------
-                    // Always let dnd5e do its normal movement
-                    // constraint processing first.
-                    // ------------------------------------------------
-
                     const result =
                         this._aecOriginalConstrainMovementPath(
                             waypoints,
                             options
                         );
-
 
                     const path =
                         result[0];
@@ -364,21 +323,11 @@ if (globalThis.movementTracker) {
                     const constrained =
                         result[1];
 
-
-                    // ------------------------------------------------
-                    // GMs are unrestricted.
-                    // ------------------------------------------------
-
                     if (game.user.isGM) {
 
                         return result;
 
                     }
-
-
-                    // ------------------------------------------------
-                    // Get actor.
-                    // ------------------------------------------------
 
                     const actor =
                         this.actor;
@@ -389,11 +338,6 @@ if (globalThis.movementTracker) {
 
                     }
 
-
-                    // ------------------------------------------------
-                    // Only enforce movement during combat.
-                    // ------------------------------------------------
-
                     const combat =
                         game.combat;
 
@@ -402,11 +346,6 @@ if (globalThis.movementTracker) {
                         return result;
 
                     }
-
-
-                    // ------------------------------------------------
-                    // Make sure this actor is the active combatant.
-                    // ------------------------------------------------
 
                     const combatant =
                         combat.combatants.find(
@@ -419,7 +358,6 @@ if (globalThis.movementTracker) {
 
                     }
 
-
                     if (
                         combat.combatant?.id !==
                         combatant.id
@@ -428,11 +366,6 @@ if (globalThis.movementTracker) {
                         return result;
 
                     }
-
-
-                    // ------------------------------------------------
-                    // Get movement state.
-                    // ------------------------------------------------
 
                     const tracker =
                         globalThis.movementTracker;
@@ -443,7 +376,6 @@ if (globalThis.movementTracker) {
 
                     }
 
-
                     const state =
                         tracker.getState(actor);
 
@@ -452,12 +384,6 @@ if (globalThis.movementTracker) {
                         return result;
 
                     }
-
-
-                    // ------------------------------------------------
-                    // If there is no movement remaining, don't allow
-                    // a new path.
-                    // ------------------------------------------------
 
                     if (state.remaining <= 0) {
 
@@ -468,22 +394,11 @@ if (globalThis.movementTracker) {
 
                     }
 
-
-                    // ------------------------------------------------
-                    // If there isn't a destination, nothing to do.
-                    // ------------------------------------------------
-
                     if (path.length <= 1) {
 
                         return result;
 
                     }
-
-
-                    // ------------------------------------------------
-                    // Measure the path using Foundry/dnd5e's own
-                    // movement measurement.
-                    // ------------------------------------------------
 
                     let measurement;
 
@@ -506,16 +421,10 @@ if (globalThis.movementTracker) {
 
                     }
 
-
                     const totalCost =
                         Number(
                             measurement?.cost ?? 0
                         );
-
-
-                    // ------------------------------------------------
-                    // Path is legal.
-                    // ------------------------------------------------
 
                     if (
                         totalCost <=
@@ -526,11 +435,6 @@ if (globalThis.movementTracker) {
 
                     }
 
-
-                    // ------------------------------------------------
-                    // PATH EXCEEDS MOVEMENT
-                    // ------------------------------------------------
-
                     console.log(
                         `%c[MOVEMENT TRACKER] LIMITING ${actor.name} → ` +
                         `${totalCost} ft requested | ` +
@@ -538,19 +442,10 @@ if (globalThis.movementTracker) {
                         "color: red; font-weight: bold;"
                     );
 
-
-                    // ------------------------------------------------
-                    // Build a shortened path one segment at a time.
-                    //
-                    // We retain the original waypoints rather than
-                    // rebuilding them from scratch.
-                    // ------------------------------------------------
-
                     const allowedPath =
                         [path[0]];
 
                     let accumulatedCost = 0;
-
 
                     for (
                         let i = 1;
@@ -566,7 +461,6 @@ if (globalThis.movementTracker) {
                                     i + 1
                                 )
                             ];
-
 
                         let candidateMeasurement;
 
@@ -589,16 +483,10 @@ if (globalThis.movementTracker) {
 
                         }
 
-
                         const candidateCost =
                             Number(
                                 candidateMeasurement?.cost ?? 0
                             );
-
-
-                        // ------------------------------------------------
-                        // This waypoint still fits.
-                        // ------------------------------------------------
 
                         if (
                             candidateCost <=
@@ -616,28 +504,15 @@ if (globalThis.movementTracker) {
 
                         }
 
-
-                        // ------------------------------------------------
-                        // This waypoint exceeds the budget.
-                        //
-                        // We stop before it.
-                        // ------------------------------------------------
-
                         break;
 
                     }
-
-
-                    // ------------------------------------------------
-                    // Return the shortened path.
-                    // ------------------------------------------------
 
                     console.log(
                         `%c[MOVEMENT TRACKER] PATH LIMITED ${actor.name} → ` +
                         `${accumulatedCost} ft`,
                         "color: red; font-weight: bold;"
                     );
-
 
                     return [
                         allowedPath,
@@ -691,6 +566,49 @@ if (globalThis.movementTracker) {
                 cost,
                 distance
             );
+
+        }
+    );
+
+
+    // ============================================================
+    // D&D 5E DASH INTEGRATION
+    //
+    // When the normal D&D 5e Dash activity is used,
+    // activate Dash in the movement tracker.
+    // ============================================================
+
+    Hooks.on(
+        "dnd5e.postUseActivity",
+        (activity, results) => {
+
+            if (!activity) return;
+
+            const activityName =
+                activity.name?.toLowerCase();
+
+            if (activityName !== "dash") return;
+
+            const actor =
+                activity.actor;
+
+            if (!actor) return;
+
+            console.log(
+                `%c[MOVEMENT TRACKER] DASH ACTIVITY DETECTED → ${actor.name}`,
+                "color: cyan; font-weight: bold;"
+            );
+
+            const success =
+                globalThis.movementTracker?.dash(actor);
+
+            if (!success) {
+
+                console.log(
+                    "[MOVEMENT TRACKER] Dash was not applied."
+                );
+
+            }
 
         }
     );
