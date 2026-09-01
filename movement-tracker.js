@@ -3,22 +3,17 @@
 // Foundry VTT 13
 // D&D 5e 5.3.3
 //
-// Tracks and enforces movement during combat.
+// Tracks movement during a creature's turn.
 //
 // Features:
-//   - Tracks movement per actor
-//   - Resets movement at the beginning of the actor's turn
-//   - Uses Foundry's native movement measurement
-//   - Uses Foundry's native movement COST
-//   - Tracks movement only during the actor's combat turn
-//   - Prevents players from exceeding available movement
+//   - Tracks remaining movement
+//   - Uses dnd5e movement cost
+//   - 5 ft diagonal movement
+//   - Supports keyboard movement
+//   - Supports drag movement
+//   - Resets at the start of the actor's turn
+//   - Player movement is limited to remaining movement
 //   - GM movement is unrestricted
-//   - Notifies players when they are out of movement
-//
-// Future features:
-//   - Movement HUD display
-//   - Dash
-//   - Movement speed modifiers
 // ============================================================
 
 
@@ -35,275 +30,222 @@ console.log(
 if (globalThis.movementTracker) {
 
     console.warn(
-        "[MOVEMENT TRACKER] Already initialized. Skipping duplicate initialization."
+        "[MOVEMENT TRACKER] Tracker already exists. Skipping duplicate initialization."
     );
 
 } else {
 
-    globalThis.movementTracker = {
 
-        // --------------------------------------------------------
-        // Actor movement states
-        // --------------------------------------------------------
+    // ============================================================
+    // INTERNAL STATE
+    // ============================================================
 
-        actors: new Map(),
+    const actors = new Map();
 
-        // Tokens currently being returned to their previous
-        // position after an illegal movement.
-        reverting: new Set(),
 
+    // ============================================================
+    // GET MOVEMENT SPEED
+    // ============================================================
 
-        // ========================================================
-        // ACTOR LOOKUP
-        // ========================================================
+    function getMovementSpeed(actor) {
 
-        getActorFromToken(token) {
+        return actor?.system?.attributes?.movement?.walk ?? 30;
 
-            return (
-                token.actor ??
-                token.document?.actor ??
-                game.actors.get(
-                    token.document?.actorId
-                )
-            );
+    }
 
-        },
 
+    // ============================================================
+    // GET STATE
+    // ============================================================
 
-        // ========================================================
-        // GET / CREATE ACTOR STATE
-        // ========================================================
+    function getState(actor) {
 
-        getState(actor) {
+        if (!actor) return null;
 
-            if (!this.actors.has(actor.id)) {
+        let state = actors.get(actor.id);
 
-                const speed =
-                    this.getMovementSpeed(actor);
+        if (!state) {
 
-                this.actors.set(actor.id, {
+            const maximum =
+                getMovementSpeed(actor);
 
-                    // Normal movement available this turn
-                    base: speed,
+            state = {
 
-                    // Total movement available this turn
-                    total: speed,
+                maximum,
 
-                    // Movement already spent
-                    spent: 0,
+                remaining: maximum,
 
-                    // Movement remaining
-                    remaining: speed
+                spent: 0
 
-                });
+            };
 
-            }
-
-            return this.actors.get(actor.id);
-        },
-
-
-        // ========================================================
-        // GET CURRENT WALKING SPEED
-        // ========================================================
-
-        getMovementSpeed(actor) {
-
-            const movement =
-                actor.system?.attributes?.movement;
-
-            return Number(
-                movement?.walk ?? 0
-            );
-
-        },
-
-
-        // ========================================================
-        // RESET MOVEMENT
-        // ========================================================
-
-        reset(actor) {
-
-            const speed =
-                this.getMovementSpeed(actor);
-
-            this.actors.set(actor.id, {
-
-                base: speed,
-                total: speed,
-                spent: 0,
-                remaining: speed
-
-            });
-
-
-            console.log(
-                "%c[MOVEMENT TRACKER] RESET",
-                "color: yellow; font-weight: bold;",
-                actor.name,
-                "→",
-                speed,
-                "ft"
-            );
-
-        },
-
-
-        // ========================================================
-        // RECORD MOVEMENT
-        // ========================================================
-
-        recordMovement(actor, cost, distance) {
-
-            const state =
-                this.getState(actor);
-
-
-            state.spent += cost;
-
-
-            state.remaining =
-                Math.max(
-                    0,
-                    state.total - state.spent
-                );
-
-
-            console.log(
-                "%c[MOVEMENT TRACKER] MOVEMENT",
-                "color: lime; font-weight: bold;",
-                actor.name,
-                "→",
-                distance,
-                "ft traveled |",
-                cost,
-                "ft cost |",
-                state.remaining,
-                "ft remaining"
-            );
-
-        },
-
-
-        // ========================================================
-        // REJECT ILLEGAL MOVEMENT
-        // ========================================================
-
-        async rejectMovement(token, movement, actor) {
-
-            const tokenId =
-                token.document?.id;
-
-            if (!tokenId) return;
-
-
-            // ----------------------------------------------------
-            // Prevent our corrective movement from triggering
-            // another rejection.
-            // ----------------------------------------------------
-
-            if (this.reverting.has(tokenId)) {
-                return;
-            }
-
-
-            this.reverting.add(tokenId);
-
-
-            try {
-
-                const origin =
-                    movement?.origin;
-
-                if (!origin) {
-                    return;
-                }
-
-
-                console.log(
-                    "%c[MOVEMENT TRACKER] ILLEGAL MOVEMENT",
-                    "color: red; font-weight: bold;",
-                    actor.name,
-                    "→ movement rejected"
-                );
-
-
-                // ------------------------------------------------
-                // Return the token to the position it occupied
-                // before the illegal movement.
-                // ------------------------------------------------
-
-                await token.document.update({
-
-                    x: origin.x,
-                    y: origin.y,
-                    elevation: origin.elevation
-
-                });
-
-
-                // ------------------------------------------------
-                // Tell the player why the movement was rejected.
-                // ------------------------------------------------
-
-                if (!game.user.isGM) {
-
-                    ui.notifications.warn(
-                        `${actor.name} is out of movement!`
-                    );
-
-                }
-
-            } finally {
-
-                // ------------------------------------------------
-                // Small delay ensures Foundry has completed the
-                // corrective token update before allowing another
-                // movement attempt.
-                // ------------------------------------------------
-
-                setTimeout(() => {
-
-                    this.reverting.delete(tokenId);
-
-                }, 100);
-
-            }
+            actors.set(actor.id, state);
 
         }
+
+        return state;
+
+    }
+
+
+    // ============================================================
+    // RESET
+    // ============================================================
+
+    function reset(actor) {
+
+        if (!actor) return;
+
+        const maximum =
+            getMovementSpeed(actor);
+
+        actors.set(actor.id, {
+
+            maximum,
+
+            remaining: maximum,
+
+            spent: 0
+
+        });
+
+        console.log(
+            `%c[MOVEMENT TRACKER] RESET ${actor.name} → ${maximum} ft available`,
+            "color: lime; font-weight: bold;"
+        );
+
+        ui.notifications.info(
+            `${actor.name}: ${maximum} ft movement available.`
+        );
+
+    }
+
+
+    // ============================================================
+    // RECORD MOVEMENT
+    // ============================================================
+
+    function recordMovement(actor, cost, distance) {
+
+        if (!actor) return;
+
+        const state =
+            getState(actor);
+
+        if (!state) return;
+
+        state.spent += cost;
+
+        state.remaining =
+            Math.max(
+                0,
+                state.maximum - state.spent
+            );
+
+        console.log(
+            `%c[MOVEMENT TRACKER] MOVEMENT ${actor.name} → ` +
+            `${distance} ft traveled | ` +
+            `${cost} ft cost | ` +
+            `${state.remaining} ft remaining`,
+            "color: orange; font-weight: bold;"
+        );
+
+    }
+
+
+    // ============================================================
+    // PUBLIC API
+    // ============================================================
+
+    globalThis.movementTracker = {
+
+        actors,
+
+        getState,
+
+        getMovementSpeed: getMovementSpeed,
+
+        reset,
+
+        recordMovement
 
     };
 
 
     // ============================================================
-    // TOKEN MOVEMENT
+    // START OF TURN
     // ============================================================
 
     Hooks.on(
-        "moveToken",
-        async (token, movement) => {
+        "combatTurn",
+        (combat, update, context) => {
+
+            if (!combat) return;
+
+            const combatant =
+                combat.combatant;
+
+            if (!combatant) return;
+
+            const actor =
+                combatant.actor;
+
+            if (!actor) return;
+
+            reset(actor);
+
+        }
+    );
+
+
+    // ============================================================
+    // MOVEMENT ENFORCEMENT
+    //
+    // Runs BEFORE the Token document update is committed.
+    //
+    // This uses Foundry/dnd5e's own movement measurement rather
+    // than recreating diagonal movement, terrain, etc.
+    // ============================================================
+
+    Hooks.on(
+        "preUpdateToken",
+        (token, changes, options, userId) => {
 
             // ----------------------------------------------------
-            // Only track movement during combat.
+            // Only process the user actually making the movement.
+            // ----------------------------------------------------
+
+            if (userId !== game.user.id) return;
+
+
+            // ----------------------------------------------------
+            // GM BYPASS
+            // ----------------------------------------------------
+
+            if (game.user.isGM) return;
+
+
+            // ----------------------------------------------------
+            // Only the user who owns the token can trigger this.
+            // ----------------------------------------------------
+
+            if (!token.isOwner) return;
+
+
+            const actor =
+                token.actor;
+
+            if (!actor) return;
+
+
+            // ----------------------------------------------------
+            // Only enforce movement during combat.
             // ----------------------------------------------------
 
             const combat =
                 game.combat;
 
             if (!combat) return;
-
-
-            // ----------------------------------------------------
-            // Resolve the actor.
-            // ----------------------------------------------------
-
-            const actor =
-                globalThis.movementTracker.getActorFromToken(
-                    token
-                );
-
-            if (!actor) return;
 
 
             // ----------------------------------------------------
@@ -326,81 +268,145 @@ if (globalThis.movementTracker) {
                 combat.combatant?.id !==
                 combatant.id
             ) {
+
                 return;
+
             }
 
 
             // ----------------------------------------------------
-            // Foundry v13 provides completed movement in
-            // movement.passed.
+            // Get tracker state.
             // ----------------------------------------------------
+
+            const tracker =
+                globalThis.movementTracker;
+
+            if (!tracker) return;
+
+
+            const state =
+                tracker.getState(actor);
+
+            if (!state) return;
+
+
+            // ----------------------------------------------------
+            // Get movement information from Foundry.
+            // ----------------------------------------------------
+
+            const movement =
+                options?.movement?.[token.id];
+
+            if (!movement?.waypoints?.length) return;
+
+
+            // ----------------------------------------------------
+            // Measure using Foundry/dnd5e's actual movement
+            // calculation.
+            // ----------------------------------------------------
+
+            let measurement;
+
+            try {
+
+                measurement =
+                    token.measureMovementPath(
+                        movement.waypoints,
+                        options
+                    );
+
+            } catch (error) {
+
+                console.error(
+                    "[MOVEMENT TRACKER] Failed to measure movement:",
+                    error
+                );
+
+                // If measurement fails, do NOT block movement.
+                return;
+
+            }
+
+
+            const cost =
+                Number(measurement?.cost ?? 0);
+
+
+            console.log(
+                `%c[MOVEMENT LIMIT] ${actor.name} → ` +
+                `${cost} ft requested | ` +
+                `${state.remaining} ft remaining`,
+                "color: magenta; font-weight: bold;"
+            );
+
+
+            // ----------------------------------------------------
+            // Movement fits within remaining movement.
+            // ----------------------------------------------------
+
+            if (
+                cost <=
+                state.remaining
+            ) {
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Movement exceeds remaining movement.
+            // ----------------------------------------------------
+
+            console.warn(
+                `[MOVEMENT LIMIT] BLOCKED ${actor.name} → ` +
+                `${cost} ft requested with ` +
+                `${state.remaining} ft remaining`
+            );
+
+
+            ui.notifications.warn(
+                `${actor.name} does not have enough movement remaining.`
+            );
+
+
+            // ----------------------------------------------------
+            // Prevent the Token update.
+            // ----------------------------------------------------
+
+            return false;
+
+        }
+    );
+
+
+    // ============================================================
+    // RECORD COMPLETED MOVEMENT
+    // ============================================================
+
+    Hooks.on(
+        "moveToken",
+        (token, movement) => {
+
+            const actor =
+                token.actor;
+
+            if (!actor) return;
 
             const passed =
                 movement?.passed;
 
             if (!passed) return;
 
+            const cost =
+                Number(passed.cost ?? 0);
 
             const distance =
-                Number(
-                    passed.distance ?? 0
-                );
+                Number(passed.distance ?? 0);
 
-            const cost =
-                Number(
-                    passed.cost ?? 0
-                );
+            if (cost <= 0) return;
 
-
-            // ----------------------------------------------------
-            // Ignore invalid / zero movement.
-            // ----------------------------------------------------
-
-            if (
-                !Number.isFinite(cost) ||
-                cost <= 0
-            ) {
-                return;
-            }
-
-
-            // ----------------------------------------------------
-            // Get current movement state.
-            // ----------------------------------------------------
-
-            const state =
-                globalThis.movementTracker.getState(
-                    actor
-                );
-
-
-            // ----------------------------------------------------
-            // HARD STOP
-            //
-            // If this movement costs more than the actor has
-            // remaining, reject the entire movement.
-            // ----------------------------------------------------
-
-            if (
-                !game.user.isGM &&
-                cost > state.remaining
-            ) {
-
-                await globalThis.movementTracker.rejectMovement(
-                    token,
-                    movement,
-                    actor
-                );
-
-                return;
-            }
-
-
-            // ----------------------------------------------------
-            // Movement is legal.
-            // ----------------------------------------------------
-
-            globalThis.movementTracker.recordMovement(
+            recordMovement(
                 actor,
                 cost,
                 distance
@@ -411,40 +417,11 @@ if (globalThis.movementTracker) {
 
 
     // ============================================================
-    // RESET MOVEMENT AT THE START OF A NEW TURN
-    // ============================================================
-
-    Hooks.on(
-        "updateCombat",
-        (combat, changed) => {
-
-            if (!("turn" in changed)) return;
-
-
-            const combatant =
-                combat.combatant;
-
-            if (!combatant?.actor) return;
-
-
-            const actor =
-                combatant.actor;
-
-
-            globalThis.movementTracker.reset(
-                actor
-            );
-
-        }
-    );
-
-
-    // ============================================================
-    // INITIALIZATION COMPLETE
+    // READY
     // ============================================================
 
     console.log(
-        "%c[MOVEMENT TRACKER] CONTROLLER CREATED",
+        "%c[MOVEMENT TRACKER] READY",
         "color: lime; font-size: 16px; font-weight: bold;"
     );
 
