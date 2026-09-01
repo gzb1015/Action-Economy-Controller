@@ -96,6 +96,12 @@ if (globalThis.movementTracker) {
 
         ui.notifications.info(
             `${actor.name}: ${maximum} ft movement available.`
+            
+        );
+
+        globalThis.AECTrackerUI?.updateMovement(
+            0,
+            maximum
         );
 
     }
@@ -130,6 +136,11 @@ if (globalThis.movementTracker) {
             "color: orange; font-weight: bold;"
         );
 
+        globalThis.AECTrackerUI?.updateMovement(
+            state.spent,
+            state.maximum
+        );
+
     }
 
 
@@ -157,25 +168,22 @@ if (globalThis.movementTracker) {
     // ============================================================
 
     Hooks.on(
-        "combatTurn",
-        (combat, update, context) => {
+        "updateCombat",
+    (combat, changed) => {
 
-            if (!combat) return;
+        if (!combat) return;
 
-            const combatant =
-                combat.combatant;
+        if (!("turn" in changed)) return;
 
-            if (!combatant) return;
+        const combatant =
+            combat.combatant;
 
-            const actor =
-                combatant.actor;
+        if (!combatant?.actor) return;
 
-            if (!actor) return;
+        reset(combatant.actor);
 
-            reset(actor);
-
-        }
-    );
+    }
+);
 
 
     // ============================================================
