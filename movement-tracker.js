@@ -1,21 +1,6 @@
 // ============================================================
 // MOVEMENT TRACKER
-// Foundry VTT 13
-// D&D 5e 5.3.3
-//
-// Tracks movement during a creature's turn.
-//
-// Features:
-//   - Tracks remaining movement
-//   - Uses dnd5e movement cost
-//   - 5 ft diagonal movement
-//   - Supports keyboard movement
-//   - Supports drag movement
-//   - Resets at the start of the actor's turn
-//   - Player movement is limited to remaining movement
-//   - GM movement is unrestricted
 // ============================================================
-
 
 console.log(
     "%c[MOVEMENT TRACKER] MODULE LOADING",
@@ -30,14 +15,13 @@ console.log(
 if (globalThis.movementTracker) {
 
     console.warn(
-        "[MOVEMENT TRACKER] Tracker already exists. Skipping duplicate initialization."
+        "[MOVEMENT TRACKER] Already initialized."
     );
 
 } else {
 
-
     // ============================================================
-    // INTERNAL STATE
+    // STATE
     // ============================================================
 
     const actors = new Map();
@@ -72,9 +56,7 @@ if (globalThis.movementTracker) {
             state = {
 
                 maximum,
-
                 remaining: maximum,
-
                 spent: 0
 
             };
@@ -102,9 +84,7 @@ if (globalThis.movementTracker) {
         actors.set(actor.id, {
 
             maximum,
-
             remaining: maximum,
-
             spent: 0
 
         });
@@ -163,7 +143,7 @@ if (globalThis.movementTracker) {
 
         getState,
 
-        getMovementSpeed: getMovementSpeed,
+        getMovementSpeed,
 
         reset,
 
@@ -199,182 +179,361 @@ if (globalThis.movementTracker) {
 
 
     // ============================================================
-    // MOVEMENT ENFORCEMENT
+    // MOVEMENT PATH LIMITER
     //
-    // Runs BEFORE the Token document update is committed.
+    // This modifies the path BEFORE Foundry executes movement.
     //
-    // This uses Foundry/dnd5e's own movement measurement rather
-    // than recreating diagonal movement, terrain, etc.
+    // We intentionally wrap the dnd5e Token5e prototype rather
+    // than trying to access Token5e as a global variable.
     // ============================================================
 
-    Hooks.on(
-        "preUpdateToken",
-        (token, changes, options, userId) => {
+    Hooks.once(
+        "ready",
+        () => {
 
-            // ----------------------------------------------------
-            // Only process the user actually making the movement.
-            // ----------------------------------------------------
-
-            if (userId !== game.user.id) return;
-
-
-            // ----------------------------------------------------
-            // GM BYPASS
-            // ----------------------------------------------------
-
-            if (game.user.isGM) return;
-
-
-            // ----------------------------------------------------
-            // Only the user who owns the token can trigger this.
-            // ----------------------------------------------------
-
-            if (!token.isOwner) return;
-
-
-            const actor =
-                token.actor;
-
-            if (!actor) return;
-
-
-            // ----------------------------------------------------
-            // Only enforce movement during combat.
-            // ----------------------------------------------------
-
-            const combat =
-                game.combat;
-
-            if (!combat) return;
-
-
-            // ----------------------------------------------------
-            // Find this actor's combatant.
-            // ----------------------------------------------------
-
-            const combatant =
-                combat.combatants.find(
-                    c => c.actor?.id === actor.id
+            const token =
+                canvas.tokens.placeables.find(
+                    t => t.actor
                 );
 
-            if (!combatant) return;
+            if (!token) {
 
-
-            // ----------------------------------------------------
-            // Only enforce movement during this actor's turn.
-            // ----------------------------------------------------
-
-            if (
-                combat.combatant?.id !==
-                combatant.id
-            ) {
+                console.warn(
+                    "[MOVEMENT TRACKER] Could not find a token to install path limiter."
+                );
 
                 return;
 
             }
 
 
-            // ----------------------------------------------------
-            // Get tracker state.
-            // ----------------------------------------------------
-
-            const tracker =
-                globalThis.movementTracker;
-
-            if (!tracker) return;
+            const proto =
+                Object.getPrototypeOf(token);
 
 
-            const state =
-                tracker.getState(actor);
+            if (proto._aecOriginalConstrainMovementPath) {
 
-            if (!state) return;
+                console.warn(
+                    "[MOVEMENT TRACKER] Path limiter already installed."
+                );
 
+                return;
 
-            // ----------------------------------------------------
-            // Get movement information from Foundry.
-            // ----------------------------------------------------
-
-            const movement =
-                options?.movement?.[token.id];
-
-            if (!movement?.waypoints?.length) return;
+            }
 
 
-            // ----------------------------------------------------
-            // Measure using Foundry/dnd5e's actual movement
-            // calculation.
-            // ----------------------------------------------------
+            proto._aecOriginalConstrainMovementPath =
+                proto.constrainMovementPath;
 
-            let measurement;
 
-            try {
+            proto.constrainMovementPath =
+                function(waypoints, options) {
 
-                measurement =
-                    token.measureMovementPath(
-                        movement.waypoints,
-                        options
+                    // ------------------------------------------------
+                    // Always let dnd5e do its normal movement
+                    // constraint processing first.
+                    // ------------------------------------------------
+
+                    const result =
+                        this._aecOriginalConstrainMovementPath(
+                            waypoints,
+                            options
+                        );
+
+
+                    const path =
+                        result[0];
+
+                    const constrained =
+                        result[1];
+
+
+                    // ------------------------------------------------
+                    // GMs are unrestricted.
+                    // ------------------------------------------------
+
+                    if (game.user.isGM) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // Get actor.
+                    // ------------------------------------------------
+
+                    const actor =
+                        this.actor;
+
+                    if (!actor) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // Only enforce movement during combat.
+                    // ------------------------------------------------
+
+                    const combat =
+                        game.combat;
+
+                    if (!combat) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // Make sure this actor is the active combatant.
+                    // ------------------------------------------------
+
+                    const combatant =
+                        combat.combatants.find(
+                            c => c.actor?.id === actor.id
+                        );
+
+                    if (!combatant) {
+
+                        return result;
+
+                    }
+
+
+                    if (
+                        combat.combatant?.id !==
+                        combatant.id
+                    ) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // Get movement state.
+                    // ------------------------------------------------
+
+                    const tracker =
+                        globalThis.movementTracker;
+
+                    if (!tracker) {
+
+                        return result;
+
+                    }
+
+
+                    const state =
+                        tracker.getState(actor);
+
+                    if (!state) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // If there is no movement remaining, don't allow
+                    // a new path.
+                    // ------------------------------------------------
+
+                    if (state.remaining <= 0) {
+
+                        return [
+                            [path[0]],
+                            true
+                        ];
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // If there isn't a destination, nothing to do.
+                    // ------------------------------------------------
+
+                    if (path.length <= 1) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // Measure the path using Foundry/dnd5e's own
+                    // movement measurement.
+                    // ------------------------------------------------
+
+                    let measurement;
+
+                    try {
+
+                        measurement =
+                            this.measureMovementPath(
+                                path,
+                                options
+                            );
+
+                    } catch (error) {
+
+                        console.error(
+                            "[MOVEMENT TRACKER] Failed to measure constrained path:",
+                            error
+                        );
+
+                        return result;
+
+                    }
+
+
+                    const totalCost =
+                        Number(
+                            measurement?.cost ?? 0
+                        );
+
+
+                    // ------------------------------------------------
+                    // Path is legal.
+                    // ------------------------------------------------
+
+                    if (
+                        totalCost <=
+                        state.remaining
+                    ) {
+
+                        return result;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // PATH EXCEEDS MOVEMENT
+                    // ------------------------------------------------
+
+                    console.log(
+                        `%c[MOVEMENT TRACKER] LIMITING ${actor.name} → ` +
+                        `${totalCost} ft requested | ` +
+                        `${state.remaining} ft remaining`,
+                        "color: red; font-weight: bold;"
                     );
 
-            } catch (error) {
 
-                console.error(
-                    "[MOVEMENT TRACKER] Failed to measure movement:",
-                    error
-                );
+                    // ------------------------------------------------
+                    // Build a shortened path one segment at a time.
+                    //
+                    // We retain the original waypoints rather than
+                    // rebuilding them from scratch.
+                    // ------------------------------------------------
 
-                // If measurement fails, do NOT block movement.
-                return;
+                    const allowedPath =
+                        [path[0]];
 
-            }
+                    let accumulatedCost = 0;
 
 
-            const cost =
-                Number(measurement?.cost ?? 0);
+                    for (
+                        let i = 1;
+                        i < path.length;
+                        i++
+                    ) {
+
+                        const candidate =
+                            [
+                                path[0],
+                                ...path.slice(
+                                    1,
+                                    i + 1
+                                )
+                            ];
+
+
+                        let candidateMeasurement;
+
+                        try {
+
+                            candidateMeasurement =
+                                this.measureMovementPath(
+                                    candidate,
+                                    options
+                                );
+
+                        } catch (error) {
+
+                            console.error(
+                                "[MOVEMENT TRACKER] Failed measuring candidate path:",
+                                error
+                            );
+
+                            break;
+
+                        }
+
+
+                        const candidateCost =
+                            Number(
+                                candidateMeasurement?.cost ?? 0
+                            );
+
+
+                        // ------------------------------------------------
+                        // This waypoint still fits.
+                        // ------------------------------------------------
+
+                        if (
+                            candidateCost <=
+                            state.remaining
+                        ) {
+
+                            allowedPath.push(
+                                path[i]
+                            );
+
+                            accumulatedCost =
+                                candidateCost;
+
+                            continue;
+
+                        }
+
+
+                        // ------------------------------------------------
+                        // This waypoint exceeds the budget.
+                        //
+                        // We stop before it.
+                        // ------------------------------------------------
+
+                        break;
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // Return the shortened path.
+                    // ------------------------------------------------
+
+                    console.log(
+                        `%c[MOVEMENT TRACKER] PATH LIMITED ${actor.name} → ` +
+                        `${accumulatedCost} ft`,
+                        "color: red; font-weight: bold;"
+                    );
+
+
+                    return [
+                        allowedPath,
+                        true
+                    ];
+
+                };
 
 
             console.log(
-                `%c[MOVEMENT LIMIT] ${actor.name} → ` +
-                `${cost} ft requested | ` +
-                `${state.remaining} ft remaining`,
-                "color: magenta; font-weight: bold;"
+                "%c[MOVEMENT TRACKER] HARD MOVEMENT LIMIT INSTALLED",
+                "color: lime; font-size: 16px; font-weight: bold;"
             );
-
-
-            // ----------------------------------------------------
-            // Movement fits within remaining movement.
-            // ----------------------------------------------------
-
-            if (
-                cost <=
-                state.remaining
-            ) {
-
-                return;
-
-            }
-
-
-            // ----------------------------------------------------
-            // Movement exceeds remaining movement.
-            // ----------------------------------------------------
-
-            console.warn(
-                `[MOVEMENT LIMIT] BLOCKED ${actor.name} → ` +
-                `${cost} ft requested with ` +
-                `${state.remaining} ft remaining`
-            );
-
-
-            ui.notifications.warn(
-                `${actor.name} does not have enough movement remaining.`
-            );
-
-
-            // ----------------------------------------------------
-            // Prevent the Token update.
-            // ----------------------------------------------------
-
-            return false;
 
         }
     );
@@ -399,10 +558,14 @@ if (globalThis.movementTracker) {
             if (!passed) return;
 
             const cost =
-                Number(passed.cost ?? 0);
+                Number(
+                    passed.cost ?? 0
+                );
 
             const distance =
-                Number(passed.distance ?? 0);
+                Number(
+                    passed.distance ?? 0
+                );
 
             if (cost <= 0) return;
 
