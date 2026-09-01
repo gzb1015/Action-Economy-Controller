@@ -9,6 +9,7 @@
 //   - Tracks movement per actor
 //   - Resets movement at the beginning of the actor's turn
 //   - Uses Foundry's native movement measurement
+//   - Uses Foundry's movement COST
 //   - Does NOT block movement yet
 //   - Does NOT show warnings yet
 //
@@ -120,13 +121,13 @@ if (globalThis.movementTracker) {
         // Record movement
         // --------------------------------------------------------
 
-        recordMovement(actor, distance) {
+        recordMovement(actor, cost, distance) {
 
             const state =
                 this.getState(actor);
 
 
-            state.spent += distance;
+            state.spent += cost;
 
             state.remaining =
                 Math.max(
@@ -141,7 +142,9 @@ if (globalThis.movementTracker) {
                 actor.name,
                 "→",
                 distance,
-                "ft spent |",
+                "ft traveled |",
+                cost,
+                "ft cost |",
                 state.remaining,
                 "ft remaining"
             );
@@ -160,7 +163,7 @@ if (globalThis.movementTracker) {
         (token, movement) => {
 
             // ----------------------------------------------------
-            // We only care about combat right now.
+            // Only track movement during combat.
             // ----------------------------------------------------
 
             const combat = game.combat;
@@ -203,26 +206,27 @@ if (globalThis.movementTracker) {
 
 
             // ----------------------------------------------------
-            // Get movement information.
+            // Foundry v13 provides movement information in
+            // movement.passed.
             //
-            // Foundry v13 movement operations provide movement
-            // data which we can inspect instead of calculating
-            // distance from raw X/Y coordinates.
+            // distance = actual distance traveled
+            // cost     = movement cost
+            //
+            // We use COST because difficult terrain and other
+            // movement modifiers may cause cost > distance.
             // ----------------------------------------------------
 
-            let distance = 0;
+            const passed =
+                movement?.passed;
+
+            if (!passed) return;
 
 
-            if (
-                movement?.distance != null
-            ) {
+            const distance =
+                Number(passed.distance ?? 0);
 
-                distance =
-                    Number(
-                        movement.distance
-                    );
-
-            }
+            const cost =
+                Number(passed.cost ?? 0);
 
 
             // ----------------------------------------------------
@@ -230,8 +234,8 @@ if (globalThis.movementTracker) {
             // ----------------------------------------------------
 
             if (
-                !Number.isFinite(distance) ||
-                distance <= 0
+                !Number.isFinite(cost) ||
+                cost <= 0
             ) {
                 return;
             }
@@ -243,6 +247,7 @@ if (globalThis.movementTracker) {
 
             globalThis.movementTracker.recordMovement(
                 actor,
+                cost,
                 distance
             );
 
