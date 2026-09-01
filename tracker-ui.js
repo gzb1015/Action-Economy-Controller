@@ -1,403 +1,475 @@
-// tracker-ui.js
-// Action Economy Tracker UI
+// ============================================================
+// TRACKER UI
+// Action Economy / Movement Display
 // Foundry VTT v13 / D&D 5e 5.3.3
 //
 // Responsibilities:
-//   - Display movement/action/bonus action/reaction resources
-//   - Display "NO MORE MOVEMENT" when movement is exhausted
-//   - Keep BG3 HUD action indicators visible during combat only
+//   - Show movement during combat only
+//   - Display movement as an original BotW-inspired stamina wheel
+//   - Show "NO MORE MOVEMENT" when movement is exhausted
+//   - Keep BG3 HUD Action / Bonus Action / Feature indicators visible
+//     during combat
 //
-// Does NOT handle movement calculation or movement restriction.
-// Those systems remain in their own files.
+// Does NOT calculate or restrict movement.
+// movement-tracker.js remains the source of truth.
+// ============================================================
 
 (() => {
-  "use strict";
+    "use strict";
 
-  const UI_ID = "aec-tracker-ui";
-  const STYLE_ID = "aec-tracker-styles";
-  const COMBAT_CLASS = "aec-in-combat";
+    const UI_ID = "aec-tracker-ui";
+    const STYLE_ID = "aec-tracker-styles";
 
+    // ============================================================
+    // CREATE UI
+    // ============================================================
 
-  // ============================================================
-  // CREATE UI
-  // ============================================================
+    function createTrackerUI() {
 
-  function createTrackerUI() {
+        let ui = document.getElementById(UI_ID);
 
-    if (document.getElementById(UI_ID)) return;
+        if (ui) return ui;
 
-    const ui = document.createElement("div");
+        ui = document.createElement("div");
+        ui.id = UI_ID;
 
-    ui.id = UI_ID;
+        ui.innerHTML = `
+            <div class="aec-stamina-title">MOVEMENT</div>
 
-    ui.innerHTML = `
-      <div class="aec-tracker-header">
-        Action Economy
-      </div>
+            <div class="aec-stamina-wheel" aria-label="Movement remaining">
+                <div class="aec-stamina-ring">
+                    <div class="aec-stamina-center">
+                        <span id="aec-movement-value">30 ft</span>
+                        <small>REMAINING</small>
+                    </div>
+                </div>
+            </div>
 
-      <div class="aec-tracker-row">
-        <span>Movement</span>
-        <span id="aec-movement-value">0 / 30 ft</span>
-      </div>
+            <div id="aec-warning">NO MORE MOVEMENT</div>
+        `;
 
-      <div class="aec-tracker-row">
-        <span>Action</span>
-        <span id="aec-action-value">●</span>
-      </div>
+        document.body.appendChild(ui);
+        injectStyles();
 
-      <div class="aec-tracker-row">
-        <span>Bonus Action</span>
-        <span id="aec-bonus-value">●</span>
-      </div>
-
-      <div class="aec-tracker-row">
-        <span>Reaction</span>
-        <span id="aec-reaction-value">●</span>
-      </div>
-
-      <div id="aec-warning">
-        NO MORE MOVEMENT
-      </div>
-    `;
+        return ui;
+    }
 
 
-    Object.assign(ui.style, {
-      position: "fixed",
-      top: "20px",
-      right: "20px",
-      zIndex: "1000",
-      minWidth: "190px",
-      padding: "10px 12px",
-      background: "rgba(20, 20, 20, 0.9)",
-      border: "1px solid rgba(255, 255, 255, 0.25)",
-      borderRadius: "8px",
-      color: "white",
-      fontFamily: "Signika, sans-serif",
-      fontSize: "14px",
-      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.4)"
-    });
+    // ============================================================
+    // CSS
+    // ============================================================
+
+    function injectStyles() {
+
+        if (document.getElementById(STYLE_ID)) return;
+
+        const style = document.createElement("style");
+        style.id = STYLE_ID;
+
+        style.textContent = `
+            #${UI_ID} {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1000;
+
+                width: 118px;
+                min-height: 118px;
+
+                display: none;
+                flex-direction: column;
+                align-items: center;
+
+                user-select: none;
+                pointer-events: none;
+
+                color: white;
+                font-family: Signika, sans-serif;
+
+                filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45));
+            }
+
+            #${UI_ID} .aec-stamina-title {
+                width: 100%;
+                margin-bottom: 5px;
+
+                text-align: center;
+                font-size: 12px;
+                font-weight: bold;
+                letter-spacing: 1.5px;
+
+                text-shadow: 0 1px 2px black, 0 0 4px black;
+            }
+
+            #${UI_ID} .aec-stamina-wheel {
+                width: 96px;
+                height: 96px;
+
+                position: relative;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            #${UI_ID} .aec-stamina-ring {
+                --aec-progress: 100%;
+
+                width: 88px;
+                height: 88px;
+
+                border-radius: 50%;
+
+                background:
+                    conic-gradient(
+                        from -90deg,
+                        #e7c85a 0 var(--aec-progress),
+                        rgba(20,20,20,0.65) var(--aec-progress) 100%
+                    );
+
+                position: relative;
+
+                box-shadow:
+                    0 0 8px rgba(0,0,0,0.7),
+                    inset 0 0 5px rgba(255,255,255,0.25);
+            }
+
+            #${UI_ID} .aec-stamina-ring::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+
+                border-radius: 50%;
+
+                background:
+                    repeating-conic-gradient(
+                        from -90deg,
+                        rgba(20,20,20,0.75) 0deg 2deg,
+                        transparent 2deg 30deg
+                    );
+
+                -webkit-mask:
+                    radial-gradient(
+                        farthest-side,
+                        transparent calc(100% - 9px),
+                        #000 calc(100% - 8px)
+                    );
+
+                mask:
+                    radial-gradient(
+                        farthest-side,
+                        transparent calc(100% - 9px),
+                        #000 calc(100% - 8px)
+                    );
+            }
+
+            #${UI_ID} .aec-stamina-center {
+                position: absolute;
+                inset: 12px;
+
+                border-radius: 50%;
+
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+
+                background: rgba(18,18,18,0.88);
+                border: 1px solid rgba(255,255,255,0.18);
+
+                box-shadow: inset 0 0 8px rgba(0,0,0,0.7);
+            }
+
+            #${UI_ID} #aec-movement-value {
+                font-size: 16px;
+                font-weight: bold;
+                line-height: 1;
+
+                color: rgb(255,245,190);
+
+                text-shadow: 0 1px 2px black, 0 0 4px black;
+            }
+
+            #${UI_ID} .aec-stamina-center small {
+                margin-top: 3px;
+                font-size: 7px;
+                letter-spacing: 0.8px;
+                opacity: 0.8;
+            }
+
+            #${UI_ID} #aec-warning {
+                display: none;
+
+                margin-top: 2px;
+
+                font-size: 10px;
+                font-weight: bold;
+                letter-spacing: 0.7px;
+
+                color: rgb(255,90,90);
+                text-align: center;
+
+                text-shadow: 0 1px 2px black, 0 0 4px black;
+            }
+        `;
+
+        document.head.appendChild(style);
+    }
 
 
-    document.body.appendChild(ui);
+    // ============================================================
+    // COMBAT VISIBILITY
+    // ============================================================
 
-    injectStyles();
+    function setTrackerCombatVisibility() {
 
-    console.log("[AEC UI] Tracker UI created.");
-  }
+        const ui = document.getElementById(UI_ID);
 
+        if (!ui) return;
 
-  // ============================================================
-  // CSS
-  // ============================================================
+        const inCombat =
+            !!game.combat &&
+            game.combat.started === true;
 
-  function injectStyles() {
-
-    if (document.getElementById(STYLE_ID)) return;
-
-    const style = document.createElement("style");
-
-    style.id = STYLE_ID;
-
-    style.textContent = `
-
-      /* --------------------------------------------------------
-         ACTION ECONOMY TRACKER
-         -------------------------------------------------------- */
-
-      #aec-tracker-ui {
-        user-select: none;
-        pointer-events: none;
-      }
+        ui.style.display =
+            inCombat ? "flex" : "none";
+    }
 
 
-      #aec-tracker-ui .aec-tracker-header {
-        font-weight: bold;
-        font-size: 16px;
-        margin-bottom: 8px;
-        text-align: center;
-        border-bottom: 1px solid rgba(255,255,255,0.2);
-        padding-bottom: 5px;
-      }
+    // ============================================================
+    // MOVEMENT DISPLAY
+    //
+    // current = movement spent
+    // maximum = movement speed
+    // ============================================================
+
+    function updateMovement(current, maximum) {
+
+        const ui =
+            document.getElementById(UI_ID);
+
+        const value =
+            document.getElementById("aec-movement-value");
+
+        const warning =
+            document.getElementById("aec-warning");
+
+        const ring =
+            ui?.querySelector(".aec-stamina-ring");
+
+        if (!value || !ring) return;
+
+        current = Math.max(0, Number(current) || 0);
+        maximum = Math.max(0, Number(maximum) || 0);
+
+        const remaining =
+            Math.max(0, maximum - current);
+
+        const percent =
+            maximum > 0
+                ? Math.min(100, (remaining / maximum) * 100)
+                : 0;
+
+        value.textContent =
+            `${Math.ceil(remaining)} ft`;
+
+        ring.style.setProperty(
+            "--aec-progress",
+            `${percent}%`
+        );
+
+        if (remaining <= 0) {
+
+            value.style.color =
+                "rgb(255,102,102)";
+
+            if (warning) {
+                warning.style.display = "block";
+            }
+
+        } else {
+
+            value.style.color =
+                "rgb(255,245,190)";
+
+            if (warning) {
+                warning.style.display = "none";
+            }
+        }
+
+        setTrackerCombatVisibility();
+    }
 
 
-      #aec-tracker-ui .aec-tracker-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin: 5px 0;
-      }
+    // ============================================================
+    // BG3 HUD ACTION INDICATORS
+    // ============================================================
+
+    function setBG3CombatVisibility() {
+
+        const filter =
+            document.querySelector(".bg3-filter-container");
+
+        if (!filter) return;
+
+        const inCombat =
+            !!game.combat &&
+            game.combat.started === true;
+
+        if (inCombat) {
+
+            filter.style.setProperty(
+                "opacity",
+                "1",
+                "important"
+            );
+
+            filter.style.setProperty(
+                "visibility",
+                "visible",
+                "important"
+            );
+
+            filter.style.setProperty(
+                "display",
+                "flex",
+                "important"
+            );
+
+        } else {
+
+            filter.style.removeProperty("opacity");
+            filter.style.removeProperty("visibility");
+            filter.style.removeProperty("display");
+        }
+    }
 
 
-      #aec-tracker-ui .aec-tracker-row span:last-child {
-        font-weight: bold;
-      }
+    // ============================================================
+    // BG3 HUD WATCHER
+    // ============================================================
+
+    function startBG3Watcher() {
+
+        if (window.__aecBG3Watcher) return;
+
+        window.__aecBG3Watcher =
+            new MutationObserver(() => {
+
+                setTrackerCombatVisibility();
+
+                if (game.combat?.started === true) {
+                    setBG3CombatVisibility();
+                }
+            });
+
+        window.__aecBG3Watcher.observe(
+            document.body,
+            {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["style", "class"]
+            }
+        );
+    }
 
 
-      #aec-movement-value {
-        color: rgb(102, 255, 102);
-      }
+    // ============================================================
+    // COMBAT HOOKS
+    // ============================================================
+
+    function registerCombatHooks() {
+
+        Hooks.on(
+            "combatStart",
+            () => {
+
+                setTrackerCombatVisibility();
+                setBG3CombatVisibility();
+
+                setTimeout(setBG3CombatVisibility, 100);
+                setTimeout(setBG3CombatVisibility, 500);
+            }
+        );
+
+        Hooks.on(
+            "deleteCombat",
+            () => {
+
+                setTrackerCombatVisibility();
+                setBG3CombatVisibility();
+            }
+        );
+
+        Hooks.on(
+            "updateCombat",
+            (combat, changed) => {
+
+                setTrackerCombatVisibility();
+
+                if ("turn" in changed) {
+                    setBG3CombatVisibility();
+                }
+            }
+        );
+    }
 
 
-      #aec-warning {
-        display: none;
-        margin-top: 8px;
-        padding-top: 7px;
-        border-top: 1px solid rgba(255,255,255,0.2);
-        color: rgb(255, 90, 90);
-        font-weight: bold;
-        text-align: center;
-      }
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
+
+    function initialize() {
+
+        createTrackerUI();
+
+        startBG3Watcher();
+
+        registerCombatHooks();
+
+        setTrackerCombatVisibility();
+        setBG3CombatVisibility();
+
+        console.log(
+            "%c[AEC UI] Movement UI initialized.",
+            "color: lime; font-size: 16px; font-weight: bold;"
+        );
+    }
 
 
-      /* --------------------------------------------------------
-         BG3 HUD COMBAT VISIBILITY
-         
-         BG3 normally fades the action filter container when the
-         HUD isn't being hovered.
-         
-         During combat, keep the Action / Bonus Action /
-         Feature indicators permanently visible.
-         -------------------------------------------------------- */
+    // ============================================================
+    // PUBLIC API
+    // ============================================================
 
-      body.${COMBAT_CLASS} .bg3-filter-container {
-        opacity: 1 !important;
-        visibility: visible !important;
-      }
+    globalThis.AECTrackerUI = {
 
-    `;
+        updateMovement,
+
+        refreshBG3:
+            setBG3CombatVisibility,
+
+        refreshCombatVisibility:
+            setTrackerCombatVisibility
+    };
 
 
-    document.head.appendChild(style);
+    // ============================================================
+    // FOUNDRY READY
+    // ============================================================
 
-    console.log("[AEC UI] Styles injected.");
-  }
+    if (typeof Hooks !== "undefined") {
 
-
-  // ============================================================
-  // MOVEMENT DISPLAY
-  // ============================================================
-
-  function updateMovement(current, maximum) {
-
-    const value = document.getElementById("aec-movement-value");
-    const warning = document.getElementById("aec-warning");
-
-    if (!value) return;
-
-
-    current = Number(current) || 0;
-    maximum = Number(maximum) || 0;
-
-
-    value.textContent = `${current} / ${maximum} ft`;
-
-
-    if (current >= maximum) {
-
-      value.style.color = "rgb(255, 102, 102)";
-
-      if (warning) {
-        warning.style.display = "block";
-      }
+        Hooks.once(
+            "ready",
+            initialize
+        );
 
     } else {
 
-      value.style.color = "rgb(102, 255, 102)";
-
-      if (warning) {
-        warning.style.display = "none";
-      }
-    }
-  }
-
-
-  // ============================================================
-  // ACTION DISPLAY
-  // ============================================================
-
-  function updateAction(available) {
-
-    const element =
-      document.getElementById("aec-action-value");
-
-    if (!element) return;
-
-
-    element.textContent = available ? "●" : "○";
-
-    element.style.color = available
-      ? "rgb(102, 255, 102)"
-      : "rgb(255, 102, 102)";
-  }
-
-
-  // ============================================================
-  // BONUS ACTION DISPLAY
-  // ============================================================
-
-  function updateBonusAction(available) {
-
-    const element =
-      document.getElementById("aec-bonus-value");
-
-    if (!element) return;
-
-
-    element.textContent = available ? "●" : "○";
-
-    element.style.color = available
-      ? "rgb(102, 255, 102)"
-      : "rgb(255, 102, 102)";
-  }
-
-
-  // ============================================================
-  // REACTION DISPLAY
-  // ============================================================
-
-  function updateReaction(available) {
-
-    const element =
-      document.getElementById("aec-reaction-value");
-
-    if (!element) return;
-
-
-    element.textContent = available ? "●" : "○";
-
-    element.style.color = available
-      ? "rgb(102, 255, 102)"
-      : "rgb(255, 102, 102)";
-  }
-
-
-  // ============================================================
-  // BG3 HUD COMBAT STATE
-  // ============================================================
-
-  function updateBG3CombatState() {
-
-    const inCombat =
-      game.combat?.started === true;
-
-
-    if (inCombat) {
-
-      if (!document.body.classList.contains(COMBAT_CLASS)) {
-
-        document.body.classList.add(COMBAT_CLASS);
-
-        console.log(
-          "[AEC UI] BG3 action indicators locked visible."
+        console.error(
+            "[AEC UI] Foundry Hooks unavailable."
         );
-      }
-
-    } else {
-
-      if (document.body.classList.contains(COMBAT_CLASS)) {
-
-        document.body.classList.remove(COMBAT_CLASS);
-
-        console.log(
-          "[AEC UI] BG3 action indicators returned to normal."
-        );
-      }
     }
-  }
-
-
-  // ============================================================
-  // COMBAT HOOKS
-  // ============================================================
-
-  function registerCombatHooks() {
-
-
-    // ----------------------------------------------------------
-    // Combat starts
-    // ----------------------------------------------------------
-
-    Hooks.on("combatStart", () => {
-
-      console.log("[AEC UI] Combat started.");
-
-      updateBG3CombatState();
-    });
-
-
-    // ----------------------------------------------------------
-    // Combat changes
-    // ----------------------------------------------------------
-
-    Hooks.on("updateCombat", () => {
-
-      updateBG3CombatState();
-    });
-
-
-    // ----------------------------------------------------------
-    // Combat deleted
-    // ----------------------------------------------------------
-
-    Hooks.on("deleteCombat", () => {
-
-      console.log("[AEC UI] Combat ended.");
-
-      updateBG3CombatState();
-    });
-  }
-
-
-  // ============================================================
-  // INITIALIZATION
-  // ============================================================
-
-  function initialize() {
-
-    createTrackerUI();
-
-    registerCombatHooks();
-
-    updateBG3CombatState();
-
-    console.log(
-      "[AEC UI] Action Economy Tracker initialized."
-    );
-  }
-
-
-  // ============================================================
-  // PUBLIC API
-  // ============================================================
-
-  window.AECTrackerUI = {
-
-    updateMovement,
-
-    updateAction,
-
-    updateBonusAction,
-
-    updateReaction,
-
-    refreshBG3: updateBG3CombatState
-
-  };
-
-
-  // ============================================================
-  // FOUNDRY READY
-  // ============================================================
-
-  if (typeof Hooks !== "undefined") {
-
-    Hooks.once("ready", initialize);
-
-  } else {
-
-    console.error(
-      "[AEC UI] Foundry Hooks unavailable."
-    );
-  }
 
 })();
