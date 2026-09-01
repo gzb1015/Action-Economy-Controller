@@ -54,11 +54,10 @@ if (globalThis.movementTracker) {
                 getMovementSpeed(actor);
 
             state = {
-
                 maximum,
                 remaining: maximum,
-                spent: 0
-
+                spent: 0,
+                dashed: false
             };
 
             actors.set(actor.id, state);
@@ -84,8 +83,12 @@ if (globalThis.movementTracker) {
         actors.set(actor.id, {
 
             maximum,
+
             remaining: maximum,
-            spent: 0
+
+            spent: 0,
+
+            dashed: false
 
         });
 
@@ -96,13 +99,117 @@ if (globalThis.movementTracker) {
 
         ui.notifications.info(
             `${actor.name}: ${maximum} ft movement available.`
-            
         );
 
         globalThis.AECTrackerUI?.updateMovement(
             0,
             maximum
         );
+
+    }
+
+
+    // ============================================================
+    // DASH
+    //
+    // Adds one additional movement allowance equal to the
+    // actor's current walking speed.
+    //
+    // Example:
+    //
+    // Normal:
+    // maximum   = 30
+    // spent     = 10
+    // remaining = 20
+    //
+    // After Dash:
+    // maximum   = 60
+    // spent     = 10
+    // remaining = 50
+    //
+    // Dash can only be used once per turn.
+    // ============================================================
+
+    function dash(actor) {
+
+        if (!actor) return false;
+
+        const state =
+            getState(actor);
+
+        if (!state) return false;
+
+
+        // --------------------------------------------------------
+        // Prevent multiple Dashes in the same turn
+        // --------------------------------------------------------
+
+        if (state.dashed) {
+
+            console.warn(
+                `[MOVEMENT TRACKER] ${actor.name} has already Dashed this turn.`
+            );
+
+            ui.notifications.warn(
+                `${actor.name} has already used Dash this turn.`
+            );
+
+            return false;
+
+        }
+
+
+        // --------------------------------------------------------
+        // Get movement speed
+        // --------------------------------------------------------
+
+        const movementSpeed =
+            getMovementSpeed(actor);
+
+
+        // --------------------------------------------------------
+        // Add another movement allowance
+        // --------------------------------------------------------
+
+        state.maximum += movementSpeed;
+
+        state.remaining += movementSpeed;
+
+        state.dashed = true;
+
+
+        // --------------------------------------------------------
+        // Log
+        // --------------------------------------------------------
+
+        console.log(
+            `%c[MOVEMENT TRACKER] DASH ${actor.name} → +${movementSpeed} ft | ` +
+            `${state.remaining} ft remaining | ` +
+            `${state.maximum} ft maximum`,
+            "color: yellow; font-weight: bold;"
+        );
+
+
+        // --------------------------------------------------------
+        // Update tracker UI
+        // --------------------------------------------------------
+
+        globalThis.AECTrackerUI?.updateMovement(
+            state.spent,
+            state.maximum
+        );
+
+
+        // --------------------------------------------------------
+        // Notification
+        // --------------------------------------------------------
+
+        ui.notifications.info(
+            `${actor.name}: Dash used. +${movementSpeed} ft movement.`
+        );
+
+
+        return true;
 
     }
 
@@ -158,7 +265,9 @@ if (globalThis.movementTracker) {
 
         reset,
 
-        recordMovement
+        recordMovement,
+
+        dash
 
     };
 
@@ -169,21 +278,21 @@ if (globalThis.movementTracker) {
 
     Hooks.on(
         "updateCombat",
-    (combat, changed) => {
+        (combat, changed) => {
 
-        if (!combat) return;
+            if (!combat) return;
 
-        if (!("turn" in changed)) return;
+            if (!("turn" in changed)) return;
 
-        const combatant =
-            combat.combatant;
+            const combatant =
+                combat.combatant;
 
-        if (!combatant?.actor) return;
+            if (!combatant?.actor) return;
 
-        reset(combatant.actor);
+            reset(combatant.actor);
 
-    }
-);
+        }
+    );
 
 
     // ============================================================
