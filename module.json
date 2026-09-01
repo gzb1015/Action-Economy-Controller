@@ -15,7 +15,8 @@
   },
   "esmodules": [
     "action-economy.js",
-    "movement-tracker.js"
+    "movement-tracker.js",
+    "tracker-ui.js"
   ],
   "manifest":"https://raw.githubusercontent.com/gzb1015/Action-Economy-Controller/main/module.json",
   "download": "https://github.com/gzb1015/Action-Economy-Controller/releases/download/v1.1.9/action-economy-controller.zip"
