@@ -3,20 +3,19 @@
 // Foundry VTT 13
 // D&D 5e 5.3.3
 //
-// Tracks movement spent during combat.
+// Tracks and enforces movement during combat.
 //
-// Current features:
+// Features:
 //   - Tracks movement per actor
 //   - Resets movement at the beginning of the actor's turn
 //   - Uses Foundry's native movement measurement
 //   - Uses Foundry's native movement COST
 //   - Tracks movement only during the actor's combat turn
-//   - Does NOT block movement yet
-//   - Does NOT show out-of-movement warnings yet
-//   - GM movement is currently unrestricted
+//   - Prevents players from exceeding available movement
+//   - GM movement is unrestricted
+//   - Notifies players when they are out of movement
 //
 // Future features:
-//   - Player movement hard-stop
 //   - Movement HUD display
 //   - Dash
 //   - Movement speed modifiers
@@ -48,6 +47,10 @@ if (globalThis.movementTracker) {
         // --------------------------------------------------------
 
         actors: new Map(),
+
+        // Tokens currently being returned to their previous
+        // position after an illegal movement.
+        reverting: new Set(),
 
 
         // ========================================================
@@ -180,6 +183,94 @@ if (globalThis.movementTracker) {
                 "ft remaining"
             );
 
+        },
+
+
+        // ========================================================
+        // REJECT ILLEGAL MOVEMENT
+        // ========================================================
+
+        async rejectMovement(token, movement, actor) {
+
+            const tokenId =
+                token.document?.id;
+
+            if (!tokenId) return;
+
+
+            // ----------------------------------------------------
+            // Prevent our corrective movement from triggering
+            // another rejection.
+            // ----------------------------------------------------
+
+            if (this.reverting.has(tokenId)) {
+                return;
+            }
+
+
+            this.reverting.add(tokenId);
+
+
+            try {
+
+                const origin =
+                    movement?.origin;
+
+                if (!origin) {
+                    return;
+                }
+
+
+                console.log(
+                    "%c[MOVEMENT TRACKER] ILLEGAL MOVEMENT",
+                    "color: red; font-weight: bold;",
+                    actor.name,
+                    "→ movement rejected"
+                );
+
+
+                // ------------------------------------------------
+                // Return the token to the position it occupied
+                // before the illegal movement.
+                // ------------------------------------------------
+
+                await token.document.update({
+
+                    x: origin.x,
+                    y: origin.y,
+                    elevation: origin.elevation
+
+                });
+
+
+                // ------------------------------------------------
+                // Tell the player why the movement was rejected.
+                // ------------------------------------------------
+
+                if (!game.user.isGM) {
+
+                    ui.notifications.warn(
+                        `${actor.name} is out of movement!`
+                    );
+
+                }
+
+            } finally {
+
+                // ------------------------------------------------
+                // Small delay ensures Foundry has completed the
+                // corrective token update before allowing another
+                // movement attempt.
+                // ------------------------------------------------
+
+                setTimeout(() => {
+
+                    this.reverting.delete(tokenId);
+
+                }, 100);
+
+            }
+
         }
 
     };
@@ -191,7 +282,19 @@ if (globalThis.movementTracker) {
 
     Hooks.on(
         "moveToken",
-        (token, movement) => {
+        async (token, movement) => {
+
+            // ----------------------------------------------------
+            // GM BYPASS
+            //
+            // The GM can move tokens freely regardless of
+            // movement remaining.
+            // ----------------------------------------------------
+
+            if (game.user.isGM) {
+                return;
+            }
+
 
             // ----------------------------------------------------
             // Only track movement during combat.
@@ -228,7 +331,7 @@ if (globalThis.movementTracker) {
 
 
             // ----------------------------------------------------
-            // Only track movement during this actor's turn.
+            // Only enforce movement during this actor's turn.
             // ----------------------------------------------------
 
             if (
@@ -240,14 +343,8 @@ if (globalThis.movementTracker) {
 
 
             // ----------------------------------------------------
-            // Foundry v13 provides the completed movement in
+            // Foundry v13 provides completed movement in
             // movement.passed.
-            //
-            // distance = actual distance traveled
-            // cost     = movement cost
-            //
-            // We use COST because difficult terrain and other
-            // effects may cause movement cost to exceed distance.
             // ----------------------------------------------------
 
             const passed =
@@ -280,7 +377,39 @@ if (globalThis.movementTracker) {
 
 
             // ----------------------------------------------------
-            // Record movement.
+            // Get current movement state.
+            // ----------------------------------------------------
+
+            const state =
+                globalThis.movementTracker.getState(
+                    actor
+                );
+
+
+            // ----------------------------------------------------
+            // HARD STOP
+            //
+            // If this movement costs more than the actor has
+            // remaining, reject the entire movement.
+            // ----------------------------------------------------
+
+            if (
+                cost >
+                state.remaining
+            ) {
+
+                await globalThis.movementTracker.rejectMovement(
+                    token,
+                    movement,
+                    actor
+                );
+
+                return;
+            }
+
+
+            // ----------------------------------------------------
+            // Movement is legal.
             // ----------------------------------------------------
 
             globalThis.movementTracker.recordMovement(
@@ -332,4 +461,3 @@ if (globalThis.movementTracker) {
     );
 
 }
-
