@@ -5,16 +5,23 @@
 //
 // Tracks movement spent during combat.
 //
-// Phase 1:
+// Current features:
 //   - Tracks movement per actor
 //   - Resets movement at the beginning of the actor's turn
 //   - Uses Foundry's native movement measurement
-//   - Uses Foundry's movement COST
+//   - Uses Foundry's native movement COST
+//   - Tracks movement only during the actor's combat turn
 //   - Does NOT block movement yet
-//   - Does NOT show warnings yet
+//   - Does NOT show out-of-movement warnings yet
+//   - GM movement is currently unrestricted
 //
-// GM movement is currently unrestricted.
+// Future features:
+//   - Player movement hard-stop
+//   - Movement HUD display
+//   - Dash
+//   - Movement speed modifiers
 // ============================================================
+
 
 console.log(
     "%c[MOVEMENT TRACKER] MODULE LOADING",
@@ -43,26 +50,47 @@ if (globalThis.movementTracker) {
         actors: new Map(),
 
 
-        // --------------------------------------------------------
-        // Get or create state for an actor
-        // --------------------------------------------------------
+        // ========================================================
+        // ACTOR LOOKUP
+        // ========================================================
+
+        getActorFromToken(token) {
+
+            return (
+                token.actor ??
+                token.document?.actor ??
+                game.actors.get(
+                    token.document?.actorId
+                )
+            );
+
+        },
+
+
+        // ========================================================
+        // GET / CREATE ACTOR STATE
+        // ========================================================
 
         getState(actor) {
 
             if (!this.actors.has(actor.id)) {
 
-                const movement =
-                    actor.system?.attributes?.movement;
-
-                const total =
-                    Number(movement?.walk ?? 0);
-
+                const speed =
+                    this.getMovementSpeed(actor);
 
                 this.actors.set(actor.id, {
 
-                    total: total,
-                    remaining: total,
-                    spent: 0
+                    // Normal movement available this turn
+                    base: speed,
+
+                    // Total movement available this turn
+                    total: speed,
+
+                    // Movement already spent
+                    spent: 0,
+
+                    // Movement remaining
+                    remaining: speed
 
                 });
 
@@ -72,9 +100,9 @@ if (globalThis.movementTracker) {
         },
 
 
-        // --------------------------------------------------------
-        // Get the actor's current walking speed
-        // --------------------------------------------------------
+        // ========================================================
+        // GET CURRENT WALKING SPEED
+        // ========================================================
 
         getMovementSpeed(actor) {
 
@@ -84,12 +112,13 @@ if (globalThis.movementTracker) {
             return Number(
                 movement?.walk ?? 0
             );
+
         },
 
 
-        // --------------------------------------------------------
-        // Reset an actor's movement
-        // --------------------------------------------------------
+        // ========================================================
+        // RESET MOVEMENT
+        // ========================================================
 
         reset(actor) {
 
@@ -98,9 +127,10 @@ if (globalThis.movementTracker) {
 
             this.actors.set(actor.id, {
 
+                base: speed,
                 total: speed,
-                remaining: speed,
-                spent: 0
+                spent: 0,
+                remaining: speed
 
             });
 
@@ -117,9 +147,9 @@ if (globalThis.movementTracker) {
         },
 
 
-        // --------------------------------------------------------
-        // Record movement
-        // --------------------------------------------------------
+        // ========================================================
+        // RECORD MOVEMENT
+        // ========================================================
 
         recordMovement(actor, cost, distance) {
 
@@ -128,6 +158,7 @@ if (globalThis.movementTracker) {
 
 
             state.spent += cost;
+
 
             state.remaining =
                 Math.max(
@@ -166,17 +197,20 @@ if (globalThis.movementTracker) {
             // Only track movement during combat.
             // ----------------------------------------------------
 
-            const combat = game.combat;
+            const combat =
+                game.combat;
 
             if (!combat) return;
 
 
             // ----------------------------------------------------
-            // Get the actor.
+            // Resolve the actor.
             // ----------------------------------------------------
 
             const actor =
-                token.actor;
+                globalThis.movementTracker.getActorFromToken(
+                    token
+                );
 
             if (!actor) return;
 
@@ -206,14 +240,14 @@ if (globalThis.movementTracker) {
 
 
             // ----------------------------------------------------
-            // Foundry v13 provides movement information in
+            // Foundry v13 provides the completed movement in
             // movement.passed.
             //
             // distance = actual distance traveled
             // cost     = movement cost
             //
             // We use COST because difficult terrain and other
-            // movement modifiers may cause cost > distance.
+            // effects may cause movement cost to exceed distance.
             // ----------------------------------------------------
 
             const passed =
@@ -223,10 +257,14 @@ if (globalThis.movementTracker) {
 
 
             const distance =
-                Number(passed.distance ?? 0);
+                Number(
+                    passed.distance ?? 0
+                );
 
             const cost =
-                Number(passed.cost ?? 0);
+                Number(
+                    passed.cost ?? 0
+                );
 
 
             // ----------------------------------------------------
@@ -242,7 +280,7 @@ if (globalThis.movementTracker) {
 
 
             // ----------------------------------------------------
-            // Record the movement.
+            // Record movement.
             // ----------------------------------------------------
 
             globalThis.movementTracker.recordMovement(
@@ -284,9 +322,14 @@ if (globalThis.movementTracker) {
     );
 
 
+    // ============================================================
+    // INITIALIZATION COMPLETE
+    // ============================================================
+
     console.log(
         "%c[MOVEMENT TRACKER] CONTROLLER CREATED",
         "color: lime; font-size: 16px; font-weight: bold;"
     );
 
 }
+
