@@ -14,6 +14,7 @@
   "use strict";
 
   const UI_ID = "aec-tracker-ui";
+  const STYLE_ID = "aec-tracker-styles";
 
   // ------------------------------------------------------------
   // CREATE UI
@@ -84,10 +85,10 @@
   // ------------------------------------------------------------
 
   function injectStyles() {
-    if (document.getElementById("aec-tracker-styles")) return;
+    if (document.getElementById(STYLE_ID)) return;
 
     const style = document.createElement("style");
-    style.id = "aec-tracker-styles";
+    style.id = STYLE_ID;
 
     style.textContent = `
       #aec-tracker-ui {
@@ -213,33 +214,81 @@
   // ------------------------------------------------------------
   // BG3 HUD ACTION INDICATORS
   //
-  // The actual BG3 Action / Bonus Action / Feature buttons live
+  // BG3 HUD places the Action / Bonus Action / Feature buttons
   // inside .bg3-filter-container.
   //
-  // The container is what fades when the HUD isn't hovered.
+  // The BG3 HUD itself fades portions of the interface when it
+  // is not hovered.
   //
-  // We ONLY override it while combat is active.
+  // During combat we override ONLY the action indicator area.
+  // Outside combat we remove every override so BG3 behaves
+  // normally.
   // ------------------------------------------------------------
 
-  function setBG3CombatVisibility() {
+  function forceBG3CombatVisibility() {
+
+    if (game.combat?.started !== true) return;
+
     const filter = document.querySelector(".bg3-filter-container");
 
     if (!filter) return;
 
-    const inCombat = game.combat?.started === true;
+    // Force the container itself visible.
+    filter.style.setProperty("opacity", "1", "important");
+    filter.style.setProperty("visibility", "visible", "important");
+    filter.style.setProperty("display", "flex", "important");
 
-    if (inCombat) {
-      filter.style.setProperty("opacity", "1", "important");
-      filter.style.setProperty("visibility", "visible", "important");
-      filter.style.setProperty("display", "flex", "important");
+    // Force the individual action buttons visible too.
+    const buttons = filter.querySelectorAll(
+      ".bg3-filter-button.action-type-button"
+    );
 
-      console.log("[AEC UI] BG3 action indicators locked visible.");
+    for (const button of buttons) {
+      button.style.setProperty("opacity", "1", "important");
+      button.style.setProperty("visibility", "visible", "important");
+      button.style.setProperty("display", "flex", "important");
+    }
+  }
+
+
+  // ------------------------------------------------------------
+  // RESTORE BG3 HUD
+  //
+  // Remove ONLY the styles that this tracker added.
+  // ------------------------------------------------------------
+
+  function restoreBG3Visibility() {
+
+    const filter = document.querySelector(".bg3-filter-container");
+
+    if (!filter) return;
+
+    filter.style.removeProperty("opacity");
+    filter.style.removeProperty("visibility");
+    filter.style.removeProperty("display");
+
+    const buttons = filter.querySelectorAll(
+      ".bg3-filter-button.action-type-button"
+    );
+
+    for (const button of buttons) {
+      button.style.removeProperty("opacity");
+      button.style.removeProperty("visibility");
+      button.style.removeProperty("display");
+    }
+  }
+
+
+  // ------------------------------------------------------------
+  // APPLY CURRENT COMBAT STATE
+  // ------------------------------------------------------------
+
+  function updateBG3Visibility() {
+
+    if (game.combat?.started === true) {
+      forceBG3CombatVisibility();
     } else {
-      filter.style.removeProperty("opacity");
-      filter.style.removeProperty("visibility");
-      filter.style.removeProperty("display");
-
-      console.log("[AEC UI] BG3 action indicators returned to normal.");
+      restoreBG3Visibility();
     }
   }
 
@@ -247,28 +296,64 @@
   // ------------------------------------------------------------
   // BG3 HUD WATCHER
   //
-  // BG3 HUD can rebuild its HTML. If that happens, reapply the
-  // combat visibility setting automatically.
+  // BG3 can modify its HUD after combat starts or when the HUD
+  // changes state.
+  //
+  // Rather than constantly writing styles on every mutation,
+  // we schedule ONE visibility update.
   // ------------------------------------------------------------
 
   function startBG3Watcher() {
+
     if (window.__aecBG3Watcher) return;
 
-    window.__aecBG3Watcher = new MutationObserver(() => {
-      if (game.combat?.started === true) {
-        const filter = document.querySelector(".bg3-filter-container");
+    let scheduled = false;
 
-        if (filter) {
-          filter.style.setProperty("opacity", "1", "important");
-          filter.style.setProperty("visibility", "visible", "important");
-          filter.style.setProperty("display", "flex", "important");
+    const scheduleUpdate = () => {
+
+      if (scheduled) return;
+
+      scheduled = true;
+
+      requestAnimationFrame(() => {
+
+        scheduled = false;
+
+        if (game.combat?.started === true) {
+          forceBG3CombatVisibility();
         }
+
+      });
+    };
+
+
+    window.__aecBG3Watcher = new MutationObserver((mutations) => {
+
+      if (game.combat?.started !== true) return;
+
+      for (const mutation of mutations) {
+
+        if (
+          mutation.type === "childList" ||
+          mutation.type === "attributes"
+        ) {
+          scheduleUpdate();
+          break;
+        }
+
       }
+
     });
+
 
     window.__aecBG3Watcher.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        "style",
+        "class"
+      ]
     });
 
     console.log("[AEC UI] BG3 HUD watcher started.");
@@ -281,24 +366,32 @@
 
   function registerCombatHooks() {
 
+    // Combat begins.
     Hooks.on("combatStart", () => {
+
       console.log("[AEC UI] Combat started.");
-      setBG3CombatVisibility();
 
-      // Give the BG3 HUD a moment to finish rendering.
-      setTimeout(setBG3CombatVisibility, 100);
-      setTimeout(setBG3CombatVisibility, 500);
+      // BG3 may not have finished updating its HUD yet.
+      setTimeout(updateBG3Visibility, 50);
+      setTimeout(updateBG3Visibility, 150);
+      setTimeout(updateBG3Visibility, 300);
+      setTimeout(updateBG3Visibility, 600);
     });
 
 
+    // Combat ends.
     Hooks.on("deleteCombat", () => {
+
       console.log("[AEC UI] Combat ended.");
-      setBG3CombatVisibility();
+
+      restoreBG3Visibility();
     });
 
 
+    // Handles combat state changes.
     Hooks.on("updateCombat", () => {
-      setBG3CombatVisibility();
+
+      setTimeout(updateBG3Visibility, 50);
     });
   }
 
@@ -308,12 +401,15 @@
   // ------------------------------------------------------------
 
   function initialize() {
+
     createTrackerUI();
+
     startBG3Watcher();
+
     registerCombatHooks();
 
-    // Apply current combat state immediately.
-    setBG3CombatVisibility();
+    // Apply the current state immediately.
+    updateBG3Visibility();
 
     console.log("[AEC UI] Action Economy Tracker initialized.");
   }
@@ -331,18 +427,22 @@
     updateAction,
     updateBonusAction,
     updateReaction,
-    refreshBG3: setBG3CombatVisibility
+    refreshBG3: updateBG3Visibility
   };
 
 
   // ------------------------------------------------------------
-  // FOUNDry READY
+  // FOUNDRY READY
   // ------------------------------------------------------------
 
   if (typeof Hooks !== "undefined") {
+
     Hooks.once("ready", initialize);
+
   } else {
+
     console.error("[AEC UI] Foundry Hooks unavailable.");
+
   }
 
 })();
