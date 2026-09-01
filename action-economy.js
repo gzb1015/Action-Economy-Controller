@@ -1,4 +1,3 @@
-```javascript
 // ============================================================
 // ACTION ECONOMY CONTROLLER
 // Foundry VTT 13
@@ -327,4 +326,3 @@ if (!globalThis.actionEconomy) {
     );
 
 }
-```
