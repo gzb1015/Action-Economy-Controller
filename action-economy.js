@@ -951,28 +951,42 @@ if (globalThis.actionEconomy) {
     // so wait until Foundry is ready.
     // ============================================================
 
-    Hooks.once(
-        "ready",
-        () => {
+   Hooks.once("ready", () => {
+    const installHUDHooks = () => {
+        const filters = ui.BG3HUD_APP?.components?.filters;
 
-            setTimeout(() => {
-
-                const controller =
-                    globalThis.actionEconomy;
-
-
-                if (!controller) return;
-
-
-                controller.installHUDActionFilterHook();
-
-                controller.installHUDActionPersistenceHooks();
-
-            }, 500);
-
+        if (!filters) {
+            console.log(
+                "[ACTION ECONOMY] Waiting for BG3 HUD filters..."
+            );
+            return false;
         }
-    );
 
+        controller.installHUDActionFilterHook();
+        controller.installHUDActionPersistenceHooks();
+
+        return true;
+    };
+
+    // Try immediately.
+    if (installHUDHooks()) return;
+
+    // BG3 HUD may initialize after the Foundry ready hook.
+    // Check periodically until it becomes available.
+    const interval = setInterval(() => {
+        if (installHUDHooks()) {
+            clearInterval(interval);
+            console.log(
+                "[ACTION ECONOMY] BG3 HUD hooks successfully installed after waiting."
+            );
+        }
+    }, 250);
+
+    // Safety timeout so we don't leave an interval running forever.
+    setTimeout(() => {
+        clearInterval(interval);
+    }, 30000);
+});
 
     // ============================================================
     // CONTROLLER READY
