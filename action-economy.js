@@ -587,206 +587,89 @@ if (globalThis.actionEconomy) {
         // ========================================================
 
         installHUDActionPersistenceHooks() {
+            if (globalThis.__aecHUDActionPersistenceHooksInstalled) return;
 
-            if (
-                globalThis.__aecHUDActionPersistenceHooksInstalled
-            ) {
-
-                console.log(
-                    "[ACTION ECONOMY] HUD Action persistence hooks already installed."
-                );
-
-                return;
-
-            }
-
-
-            const hud =
-                globalThis.ui?.BG3HUD_APP;
-
-
-            if (!hud) {
-
-                console.warn(
-                    "[ACTION ECONOMY] BG3 HUD not available; Action persistence hooks not installed."
-                );
-
-                return;
-
-            }
-
-
-            const filters =
-                hud.components?.filters;
-
-
+            const filters = ui.BG3HUD_APP?.components?.filters;
             if (!filters) {
-
                 console.warn(
-                    "[ACTION ECONOMY] BG3 HUD filters not available; Action persistence hooks not installed."
+                    "[ACTION ECONOMY] BG3 HUD filters not available for persistence hook."
                 );
-
                 return;
-
             }
 
+            const dndProto = Object.getPrototypeOf(filters);
+            const originalSync = dndProto.syncUsedActionFilters;
 
-            const filterContainerProto =
-                Object.getPrototypeOf(
-                    Object.getPrototypeOf(filters)
-                );
-
-
-            // ----------------------------------------------------
-            // Save original methods.
-            // ----------------------------------------------------
-
-            const originalRender =
-                filterContainerProto.render;
-
-            const originalUpdate =
-                filterContainerProto.update;
-
-
-            if (
-                typeof originalRender !== "function" ||
-                typeof originalUpdate !== "function"
-            ) {
-
+            if (typeof originalSync !== "function") {
                 console.warn(
-                    "[ACTION ECONOMY] Could not locate FilterContainer render/update methods."
+                    "[ACTION ECONOMY] syncUsedActionFilters() not found."
                 );
-
                 return;
-
             }
 
+            if (globalThis.__aecOriginalSyncUsedActionFilters) {
+                console.warn(
+                    "[ACTION ECONOMY] syncUsedActionFilters hook already exists."
+                );
+                return;
+            }
 
-            // ----------------------------------------------------
-            // Restore Action filter if AEC says it is used.
-            // ----------------------------------------------------
+            globalThis.__aecOriginalSyncUsedActionFilters = originalSync;
 
-            const restoreActionFilter = function () {
+            dndProto.syncUsedActionFilters = function (...args) {
 
-                const controller =
-                    globalThis.actionEconomy;
-
-
-                if (!controller) return;
-
-
-                const actor =
-                    this.actor;
-
-
-                if (!actor) return;
-
-
-                const state =
-                    controller.getState(actor);
-
-
-                if (!state?.action) return;
-
-
-                const actionFilter =
-                    this.filterButtons?.find(
-                        button =>
-                            button.data?.id === "action"
-                    );
-
-
-                if (!actionFilter) return;
-
-
-                const actionIsUsed =
-                    this._used?.some(
-                        filter =>
-                            filter?.data?.id === "action"
-                    );
-
-
-                // Already visually marked used.
-                if (actionIsUsed) return;
-
-
-                // ------------------------------------------------
-                // Tell the Action-filter setter hook that this is
-                // an AEC restoration rather than a manual click.
-                // ------------------------------------------------
-
-                this.__aecSyncingAction = true;
-
-
-                this.used =
-                    actionFilter;
-
-
-                this.__aecSyncingAction = false;
-
-
-                console.log(
-                    "%c[ACTION ECONOMY] RESTORED HUD ACTION INDICATOR",
-                    "color: orange; font-weight: bold;",
-                    actor.name
+               // Let BG3 HUD perform its normal Bonus Action / Reaction sync.
+                const result = globalThis.__aecOriginalSyncUsedActionFilters.apply(
+                    this,
+                    args
                 );
 
+                const actor = this.actor;
+                if (!actor) return result;
+
+                const state = globalThis.actionEconomy?.getState(actor);
+                if (!state) return result;
+
+                // Only restore the HUD indicator if AEC says the Action
+                // has already been consumed.
+                if (!state.action) return result;
+
+                const actionFilter = this
+                    .getAllFilterButtons()
+                    .find(f => f.data?.id === "action");
+
+                if (!actionFilter) return result;
+
+                const currentlyUsed = this._used?.includes(actionFilter);
+
+                if (!currentlyUsed) {
+
+                    // Prevent our own setter from being interpreted as
+                    // the player manually changing the Action filter.
+                    this.__aecSyncingAction = true;
+
+                    try {
+                        this.used = actionFilter;
+
+                        console.log(
+                            "%c[ACTION ECONOMY] RESTORED HUD ACTION INDICATOR",
+                            "color: cyan; font-weight: bold;",
+                            actor.name
+                        );
+                    } finally {
+                        this.__aecSyncingAction = false;
+                    }
+                }
+
+                return result;
             };
 
-
-            // ----------------------------------------------------
-            // Wrap render().
-            // ----------------------------------------------------
-
-            filterContainerProto.render =
-                async function (...args) {
-
-                    const result =
-                        await originalRender.apply(
-                            this,
-                            args
-                        );
-
-
-                    restoreActionFilter.call(this);
-
-
-                    return result;
-
-                };
-
-
-            // ----------------------------------------------------
-            // Wrap update().
-            // ----------------------------------------------------
-
-            filterContainerProto.update =
-                async function (...args) {
-
-                    const result =
-                        await originalUpdate.apply(
-                            this,
-                            args
-                        );
-
-
-                    restoreActionFilter.call(this);
-
-
-                    return result;
-
-                };
-
-
-            globalThis.__aecHUDActionPersistenceHooksInstalled =
-                true;
-
+            globalThis.__aecHUDActionPersistenceHooksInstalled = true;
 
             console.log(
-                "%c[ACTION ECONOMY] BG3 HUD Action persistence hooks installed.",
+                "%c[ACTION ECONOMY] BG3 HUD Action persistence hook installed on syncUsedActionFilters().",
                 "color: lime; font-weight: bold;"
             );
-
         },
 
 
