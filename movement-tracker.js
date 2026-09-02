@@ -28,93 +28,10 @@ if (globalThis.movementTracker) {
 
 
     // ============================================================
-    // MOVEMENT MODIFIERS
-    //
-    // These are calculated dynamically from the actor.
-    //
-    // We do NOT permanently modify the actor's movement speed.
-    // This allows effects to appear/disappear safely.
+    // GET MOVEMENT SPEED
     // ============================================================
 
-    function getMovementModifiers(actor) {
-
-        if (!actor) {
-
-            return {
-                multiplier: 1,
-                flat: 0,
-                reasons: []
-            };
-
-        }
-
-        let multiplier = 1;
-        let flat = 0;
-
-        const reasons = [];
-
-
-        // --------------------------------------------------------
-        // PRONE
-        //
-        // Standing up from Prone costs half of the creature's
-        // movement speed.
-        //
-        // While prone, movement itself is not reduced to zero.
-        // The important cost is standing up.
-        //
-        // We track this separately so the tracker can later
-        // account for the actual 5e movement rules.
-        // --------------------------------------------------------
-
-        const isProne =
-            actor.effects?.some(
-                effect =>
-                    effect.name?.toLowerCase() === "prone" ||
-                    effect.label?.toLowerCase() === "prone" ||
-                    effect.statuses?.has?.("prone")
-            );
-
-        if (isProne) {
-
-            reasons.push("Prone");
-
-        }
-
-
-        // --------------------------------------------------------
-        // FUTURE MODIFIERS
-        //
-        // Additional movement effects will be added here.
-        //
-        // Examples:
-        // - Grappled
-        // - Restrained
-        // - Difficult Terrain
-        // - Haste
-        // - Slow
-        // - Bladesong
-        // - Exhaustion-related effects
-        //
-        // We intentionally leave these out for now rather than
-        // guessing how another module is implementing them.
-        // --------------------------------------------------------
-
-
-        return {
-            multiplier,
-            flat,
-            reasons
-        };
-
-    }
-
-
-    // ============================================================
-    // GET BASE MOVEMENT SPEED
-    // ============================================================
-
-    function getBaseMovementSpeed(actor) {
+    function getMovementSpeed(actor) {
 
         return Number(
             actor?.system?.attributes?.movement?.walk ?? 30
@@ -124,33 +41,68 @@ if (globalThis.movementTracker) {
 
 
     // ============================================================
-    // GET EFFECTIVE MOVEMENT SPEED
+    // GET PRONE EFFECT
+    //
+    // We intentionally return the actual ActiveEffect so that
+    // it can be removed ONLY after successful movement.
     // ============================================================
 
-    function getMovementSpeed(actor) {
+    function getProneEffect(actor) {
 
-        if (!actor) return 30;
+        if (!actor) return null;
 
-        const base =
-            getBaseMovementSpeed(actor);
+        return actor.effects?.find(effect => {
 
-        const modifiers =
-            getMovementModifiers(actor);
+            const name =
+                effect.name?.toLowerCase() ?? "";
 
-        const effective =
-            Math.max(
-                0,
-                (base * modifiers.multiplier) +
-                modifiers.flat
+            const label =
+                effect.label?.toLowerCase() ?? "";
+
+            const statuses =
+                effect.statuses;
+
+            return (
+                name === "prone" ||
+                label === "prone" ||
+                statuses?.has?.("prone")
             );
 
-        return effective;
+        }) ?? null;
 
     }
 
 
     // ============================================================
-    // GET MOVEMENT STATE
+    // IS PRONE?
+    // ============================================================
+
+    function isProne(actor) {
+
+        return !!getProneEffect(actor);
+
+    }
+
+
+    // ============================================================
+    // GET PRONE STAND COST
+    //
+    // Standing costs half of the actor's movement speed.
+    // ============================================================
+
+    function getProneStandCost(actor) {
+
+        if (!actor) return 0;
+
+        if (!isProne(actor)) return 0;
+
+        return getMovementSpeed(actor) / 2;
+
+    }
+
+
+    // ============================================================
+    // GET STATE
     // ============================================================
 
     function getState(actor) {
@@ -167,33 +119,16 @@ if (globalThis.movementTracker) {
 
             state = {
 
-                // Base movement available this turn.
-                baseMaximum:
-                    maximum,
-
-                // Additional movement granted by Dash.
-                dashBonus:
-                    0,
-
-                // Total movement available.
                 maximum,
 
-                // Movement remaining.
                 remaining:
                     maximum,
 
-                // Movement already spent.
                 spent:
                     0,
 
-                // Whether Dash has already been activated.
                 dashed:
-                    false,
-
-                // Effective speed used when the state was last
-                // calculated.
-                movementSpeed:
-                    maximum
+                    false
 
             };
 
@@ -205,6 +140,251 @@ if (globalThis.movementTracker) {
         }
 
         return state;
+
+    }
+
+
+    // ============================================================
+    // RESET
+    // ============================================================
+
+    function reset(actor) {
+
+        if (!actor) return;
+
+        const maximum =
+            getMovementSpeed(actor);
+
+        actors.set(
+            actor.id,
+            {
+
+                maximum,
+
+                remaining:
+                    maximum,
+
+                spent:
+                    0,
+
+                dashed:
+                    false
+
+            }
+        );
+
+        console.log(
+            `%c[MOVEMENT TRACKER] RESET ${actor.name} → ${maximum} ft available`,
+            "color: lime; font-weight: bold;"
+        );
+
+        ui.notifications.info(
+            `${actor.name}: ${maximum} ft movement available.`
+        );
+
+        globalThis.AECTrackerUI?.updateMovement(
+            0,
+            maximum
+        );
+
+    }
+
+
+    // ============================================================
+    // DASH
+    // ============================================================
+
+    function dash(actor) {
+
+        if (!actor) return false;
+
+        const state =
+            getState(actor);
+
+        if (!state) return false;
+
+
+        // --------------------------------------------------------
+        // TURN CHECK
+        // --------------------------------------------------------
+
+        if (
+            !game.user.isGM &&
+            game.combat &&
+            !isActorTurn(actor)
+        ) {
+
+            ui.notifications.warn(
+                `${actor.name} cannot Dash because it is not their turn.`
+            );
+
+            console.warn(
+                `%c[MOVEMENT TRACKER] BLOCKED DASH → ${actor.name} is not the active combatant.`,
+                "color: red; font-weight: bold;"
+            );
+
+            return false;
+
+        }
+
+
+        // --------------------------------------------------------
+        // PREVENT MULTIPLE DASHES
+        // --------------------------------------------------------
+
+        if (state.dashed) {
+
+            console.log(
+                `%c[MOVEMENT TRACKER] ${actor.name} already dashed this turn.`,
+                "color: yellow; font-weight: bold;"
+            );
+
+            ui.notifications.warn(
+                `${actor.name} has already used Dash this turn.`
+            );
+
+            return false;
+
+        }
+
+
+        const movementSpeed =
+            getMovementSpeed(actor);
+
+
+        // Add the character's normal movement speed
+        // to the current movement allowance.
+
+        state.maximum +=
+            movementSpeed;
+
+        state.remaining +=
+            movementSpeed;
+
+        state.dashed =
+            true;
+
+
+        console.log(
+            `%c[MOVEMENT TRACKER] DASH ${actor.name} → ` +
+            `+${movementSpeed} ft | ` +
+            `${state.remaining} ft remaining`,
+            "color: cyan; font-weight: bold;"
+        );
+
+
+        globalThis.AECTrackerUI?.updateMovement(
+            state.spent,
+            state.maximum
+        );
+
+
+        ui.notifications.info(
+            `${actor.name}: Dash activated! +${movementSpeed} ft movement.`
+        );
+
+
+        return true;
+
+    }
+
+
+    // ============================================================
+    // RECORD MOVEMENT
+    // ============================================================
+
+    function recordMovement(
+        actor,
+        cost,
+        distance,
+        stoodFromProne = false
+    ) {
+
+        if (!actor) return;
+
+        const state =
+            getState(actor);
+
+        if (!state) return;
+
+
+        const movementCost =
+            Math.max(
+                0,
+                Number(cost) || 0
+            );
+
+
+        if (movementCost <= 0) return;
+
+
+        // --------------------------------------------------------
+        // RECORD MOVEMENT
+        // --------------------------------------------------------
+
+        state.spent +=
+            movementCost;
+
+
+        state.remaining =
+            Math.max(
+                0,
+                state.maximum -
+                state.spent
+            );
+
+
+        console.log(
+            `%c[MOVEMENT TRACKER] MOVEMENT ${actor.name} → ` +
+            `${distance} ft traveled | ` +
+            `${movementCost} ft movement cost | ` +
+            `${state.remaining} ft remaining`,
+            "color: orange; font-weight: bold;"
+        );
+
+
+        // --------------------------------------------------------
+        // UPDATE UI
+        // --------------------------------------------------------
+
+        globalThis.AECTrackerUI?.updateMovement(
+            state.spent,
+            state.maximum
+        );
+
+
+        // --------------------------------------------------------
+        // PRONE → STAND
+        //
+        // This happens ONLY after movement actually occurred.
+        // --------------------------------------------------------
+
+        if (stoodFromProne) {
+
+            const proneEffect =
+                getProneEffect(actor);
+
+            if (proneEffect) {
+
+                proneEffect.delete().then(() => {
+
+                    console.log(
+                        `%c[MOVEMENT TRACKER] ${actor.name} stood up from Prone.`,
+                        "color: yellow; font-weight: bold;"
+                    );
+
+                }).catch(error => {
+
+                    console.error(
+                        "[MOVEMENT TRACKER] Failed to remove Prone effect:",
+                        error
+                    );
+
+                });
+
+            }
+
+        }
 
     }
 
@@ -241,18 +421,21 @@ if (globalThis.movementTracker) {
         const combat =
             game.combat;
 
+
         // Outside combat, movement is unrestricted.
         if (!combat) return true;
+
 
         const combatant =
             getCombatant(actor);
 
+
         if (!combatant) {
 
-            // Actor isn't participating in this combat.
             return false;
 
         }
+
 
         return (
             combat.combatant?.id ===
@@ -263,206 +446,22 @@ if (globalThis.movementTracker) {
 
 
     // ============================================================
-    // CAN ACTOR MOVE?
+    // CAN MOVE?
     // ============================================================
 
     function canMove(actor) {
 
         if (!actor) return false;
 
-        // GM is never restricted by the tracker.
-        if (game.user?.isGM) return true;
+        // GM bypass.
+        if (game.user.isGM) return true;
+
 
         // During combat, only the active combatant can move.
-        if (!isActorTurn(actor)) {
-
-            return false;
-
-        }
-
-        const state =
-            getState(actor);
-
-        if (!state) return false;
-
-        return state.remaining > 0;
-
-    }
-
-
-    // ============================================================
-    // RECALCULATE CURRENT MOVEMENT
-    //
-    // This is important when a condition/effect changes during
-    // a turn.
-    //
-    // We preserve movement already spent.
-    // ============================================================
-
-    function recalculate(actor) {
-
-        if (!actor) return null;
-
-        const state =
-            getState(actor);
-
-        if (!state) return null;
-
-
-        const movementSpeed =
-            getMovementSpeed(actor);
-
-
-        // Preserve Dash as an additional copy of the current
-        // effective movement speed.
-        //
-        // Example:
-        //
-        // 30 speed
-        // Dash
-        // 60 total
-        //
-        // If speed later becomes 20:
-        //
-        // 20 base + 20 Dash = 40 total.
-        //
-        const dashBonus =
-            state.dashed
-                ? movementSpeed
-                : 0;
-
-
-        const maximum =
-            movementSpeed +
-            dashBonus;
-
-
-        const spent =
-            state.spent;
-
-
-        state.baseMaximum =
-            movementSpeed;
-
-        state.dashBonus =
-            dashBonus;
-
-        state.movementSpeed =
-            movementSpeed;
-
-        state.maximum =
-            maximum;
-
-        state.remaining =
-            Math.max(
-                0,
-                maximum - spent
-            );
-
-
-        globalThis.AECTrackerUI?.updateMovement(
-            state.spent,
-            state.maximum
-        );
-
-
-        console.log(
-            `%c[MOVEMENT TRACKER] RECALCULATED ${actor.name} → ` +
-            `${state.remaining} ft remaining ` +
-            `(${movementSpeed} base` +
-            `${state.dashed ? ` + ${dashBonus} Dash` : ""})`,
-            "color: violet; font-weight: bold;"
-        );
-
-
-        return state;
-
-    }
-
-
-    // ============================================================
-    // RESET
-    // ============================================================
-
-    function reset(actor) {
-
-        if (!actor) return;
-
-        const maximum =
-            getMovementSpeed(actor);
-
-        actors.set(
-            actor.id,
-            {
-
-                baseMaximum:
-                    maximum,
-
-                dashBonus:
-                    0,
-
-                maximum:
-                    maximum,
-
-                remaining:
-                    maximum,
-
-                spent:
-                    0,
-
-                dashed:
-                    false,
-
-                movementSpeed:
-                    maximum
-
-            }
-        );
-
-
-        console.log(
-            `%c[MOVEMENT TRACKER] RESET ${actor.name} → ` +
-            `${maximum} ft available`,
-            "color: lime; font-weight: bold;"
-        );
-
-
-        ui.notifications.info(
-            `${actor.name}: ${maximum} ft movement available.`
-        );
-
-
-        globalThis.AECTrackerUI?.updateMovement(
-            0,
-            maximum
-        );
-
-    }
-
-
-    // ============================================================
-    // DASH
-    // ============================================================
-
-    function dash(actor) {
-
-        if (!actor) return false;
-
-
-        // --------------------------------------------------------
-        // TURN CHECK
-        // --------------------------------------------------------
-
-        if (!game.user?.isGM && !isActorTurn(actor)) {
-
-            ui.notifications.warn(
-                `${actor.name} cannot Dash because it is not their turn.`
-            );
-
-            console.warn(
-                `[MOVEMENT TRACKER] BLOCKED DASH → ${actor.name} ` +
-                `(not their turn)`
-            );
+        if (
+            game.combat &&
+            !isActorTurn(actor)
+        ) {
 
             return false;
 
@@ -471,133 +470,27 @@ if (globalThis.movementTracker) {
 
         const state =
             getState(actor);
+
 
         if (!state) return false;
 
 
-        // --------------------------------------------------------
-        // PREVENT MULTIPLE DASHES
-        // --------------------------------------------------------
+        // If Prone, at least enough movement to stand must remain.
+        if (isProne(actor)) {
 
-        if (state.dashed) {
+            const standCost =
+                getProneStandCost(actor);
 
-            console.log(
-                `%c[MOVEMENT TRACKER] ${actor.name} ` +
-                `already dashed this turn.`,
-                "color: yellow; font-weight: bold;"
+            return (
+                state.remaining >
+                standCost
             );
-
-            ui.notifications.warn(
-                `${actor.name} has already used Dash this turn.`
-            );
-
-            return false;
 
         }
 
 
-        // --------------------------------------------------------
-        // CURRENT EFFECTIVE SPEED
-        // --------------------------------------------------------
-
-        const movementSpeed =
-            getMovementSpeed(actor);
-
-
-        // --------------------------------------------------------
-        // ADD DASH
-        // --------------------------------------------------------
-
-        state.dashed =
-            true;
-
-        state.dashBonus =
-            movementSpeed;
-
-        state.maximum +=
-            movementSpeed;
-
-        state.remaining +=
-            movementSpeed;
-
-
-        console.log(
-            `%c[MOVEMENT TRACKER] DASH ${actor.name} → ` +
-            `+${movementSpeed} ft | ` +
-            `${state.remaining} ft remaining`,
-            "color: cyan; font-weight: bold;"
-        );
-
-
-        globalThis.AECTrackerUI?.updateMovement(
-            state.spent,
-            state.maximum
-        );
-
-
-        ui.notifications.info(
-            `${actor.name}: Dash activated! ` +
-            `+${movementSpeed} ft movement.`
-        );
-
-
-        return true;
-
-    }
-
-
-    // ============================================================
-    // RECORD MOVEMENT
-    // ============================================================
-
-    function recordMovement(
-        actor,
-        cost,
-        distance
-    ) {
-
-        if (!actor) return;
-
-        const state =
-            getState(actor);
-
-        if (!state) return;
-
-
-        const movementCost =
-            Math.max(
-                0,
-                Number(cost) || 0
-            );
-
-
-        if (movementCost <= 0) return;
-
-
-        state.spent +=
-            movementCost;
-
-
-        state.remaining =
-            Math.max(
-                0,
-                state.maximum -
-                state.spent
-            );
-
-
-        console.log(
-            `%c[MOVEMENT TRACKER] MOVEMENT ${actor.name} → ` +
-            `${distance} ft traveled | ` +
-            `${movementCost} ft cost | ` +
-            `${state.remaining} ft remaining`,
-            "color: orange; font-weight: bold;"
-        );
-
-
-        globalThis.AECTrackerUI?.updateMovement(
-            state.spent,
-            state.maximum
+        return (
+            state.remaining > 0
         );
 
     }
@@ -615,17 +508,17 @@ if (globalThis.movementTracker) {
 
         getMovementSpeed,
 
-        getBaseMovementSpeed,
+        getProneEffect,
 
-        getMovementModifiers,
+        isProne,
+
+        getProneStandCost,
 
         getCombatant,
 
         isActorTurn,
 
         canMove,
-
-        recalculate,
 
         reset,
 
@@ -651,6 +544,7 @@ if (globalThis.movementTracker) {
 
             const combatant =
                 combat.combatant;
+
 
             if (!combatant?.actor) return;
 
@@ -682,8 +576,7 @@ if (globalThis.movementTracker) {
             if (!token) {
 
                 console.warn(
-                    "[MOVEMENT TRACKER] Could not find a token " +
-                    "to install path limiter."
+                    "[MOVEMENT TRACKER] Could not find a token to install path limiter."
                 );
 
                 return;
@@ -758,8 +651,6 @@ if (globalThis.movementTracker) {
 
                     // ------------------------------------------------
                     // OUTSIDE COMBAT
-                    //
-                    // Movement is unrestricted outside combat.
                     // ------------------------------------------------
 
                     const combat =
@@ -774,14 +665,13 @@ if (globalThis.movementTracker) {
 
 
                     // ------------------------------------------------
-                    // VERIFY ACTOR IS CURRENT COMBATANT
+                    // FIND ACTOR'S COMBATANT
                     // ------------------------------------------------
 
                     const combatant =
                         combat.combatants?.find(
                             c =>
-                                c.actor?.id ===
-                                actor.id
+                                c.actor?.id === actor.id
                         );
 
 
@@ -794,6 +684,10 @@ if (globalThis.movementTracker) {
 
                     // ------------------------------------------------
                     // HARD TURN LOCK
+                    //
+                    // IMPORTANT:
+                    // Previously this returned the normal result,
+                    // which allowed movement outside the actor's turn.
                     // ------------------------------------------------
 
                     if (
@@ -831,15 +725,8 @@ if (globalThis.movementTracker) {
                     }
 
 
-                    // ------------------------------------------------
-                    // RECALCULATE CURRENT STATE
-                    //
-                    // This catches movement changes caused by
-                    // effects added/removed during the turn.
-                    // ------------------------------------------------
-
                     const state =
-                        tracker.recalculate(actor);
+                        tracker.getState(actor);
 
 
                     if (!state) {
@@ -850,10 +737,69 @@ if (globalThis.movementTracker) {
 
 
                     // ------------------------------------------------
-                    // NO MOVEMENT REMAINING
+                    // DETERMINE PRONE STAND COST
+                    //
+                    // We DON'T remove the effect here.
+                    //
+                    // We only reserve the movement cost.
+                    // The effect is removed after moveToken confirms
+                    // that the token actually moved.
+                    // ------------------------------------------------
+
+                    const prone =
+                        tracker.isProne(actor);
+
+
+                    const standCost =
+                        prone
+                            ? tracker.getProneStandCost(actor)
+                            : 0;
+
+
+                    // ------------------------------------------------
+                    // MOVEMENT AVAILABLE FOR ACTUAL TRAVEL
+                    // ------------------------------------------------
+
+                    const availableMovement =
+                        Math.max(
+                            0,
+                            state.remaining -
+                            standCost
+                        );
+
+
+                    // ------------------------------------------------
+                    // PRONE WITH NOT ENOUGH MOVEMENT TO STAND
                     // ------------------------------------------------
 
                     if (
+                        prone &&
+                        state.remaining <= standCost
+                    ) {
+
+                        console.log(
+                            `%c[MOVEMENT TRACKER] BLOCKED MOVEMENT → ` +
+                            `${actor.name} is Prone and has only ` +
+                            `${state.remaining} ft remaining ` +
+                            `(needs ${standCost} ft to stand).`,
+                            "color: red; font-weight: bold;"
+                        );
+
+
+                        return [
+                            [path?.[0] ?? waypoints?.[0]],
+                            true
+                        ];
+
+                    }
+
+
+                    // ------------------------------------------------
+                    // NORMAL NO-MOVEMENT CHECK
+                    // ------------------------------------------------
+
+                    if (
+                        !prone &&
                         state.remaining <= 0
                     ) {
 
@@ -904,7 +850,7 @@ if (globalThis.movementTracker) {
                     } catch (error) {
 
                         console.error(
-                            "[MOVEMENT TRACKER] Failed to measure path:",
+                            "[MOVEMENT TRACKER] Failed to measure constrained path:",
                             error
                         );
 
@@ -920,12 +866,15 @@ if (globalThis.movementTracker) {
 
 
                     // ------------------------------------------------
-                    // PATH IS WITHIN REMAINING MOVEMENT
+                    // PATH FITS
+                    //
+                    // Notice that for Prone characters the path
+                    // must fit AFTER paying the standing cost.
                     // ------------------------------------------------
 
                     if (
                         totalCost <=
-                        state.remaining
+                        availableMovement
                     ) {
 
                         return result;
@@ -940,7 +889,8 @@ if (globalThis.movementTracker) {
                     console.log(
                         `%c[MOVEMENT TRACKER] LIMITING ${actor.name} → ` +
                         `${totalCost} ft requested | ` +
-                        `${state.remaining} ft remaining`,
+                        `${availableMovement} ft available for travel ` +
+                        `${prone ? `(after ${standCost} ft stand cost)` : ""}`,
                         "color: red; font-weight: bold;"
                     );
 
@@ -984,8 +934,7 @@ if (globalThis.movementTracker) {
                         } catch (error) {
 
                             console.error(
-                                "[MOVEMENT TRACKER] Failed measuring " +
-                                "candidate path:",
+                                "[MOVEMENT TRACKER] Failed measuring candidate path:",
                                 error
                             );
 
@@ -1002,7 +951,7 @@ if (globalThis.movementTracker) {
 
                         if (
                             candidateCost <=
-                            state.remaining
+                            availableMovement
                         ) {
 
                             allowedPath.push(
@@ -1024,7 +973,8 @@ if (globalThis.movementTracker) {
 
                     console.log(
                         `%c[MOVEMENT TRACKER] PATH LIMITED ${actor.name} → ` +
-                        `${accumulatedCost} ft`,
+                        `${accumulatedCost} ft travel ` +
+                        `${prone ? `+ ${standCost} ft stand` : ""}`,
                         "color: red; font-weight: bold;"
                     );
 
@@ -1065,18 +1015,30 @@ if (globalThis.movementTracker) {
 
 
             // ------------------------------------------------
-            // NEVER RECORD MOVEMENT OUTSIDE THE ACTOR'S TURN
+            // GM BYPASS
+            // ------------------------------------------------
+
+            if (game.user.isGM) return;
+
+
+            // ------------------------------------------------
+            // HARD TURN CHECK
+            //
+            // This is a SECOND layer of protection.
+            //
+            // Even if some other system somehow manages to move
+            // the token, we do not count that movement as legal
+            // player movement outside their turn.
             // ------------------------------------------------
 
             if (
-                !game.user?.isGM &&
                 game.combat &&
                 !isActorTurn(actor)
             ) {
 
                 console.warn(
-                    `%c[MOVEMENT TRACKER] IGNORED MOVEMENT RECORD → ` +
-                    `${actor.name} moved outside their turn.`,
+                    `%c[MOVEMENT TRACKER] MOVEMENT OCCURRED OUTSIDE TURN → ` +
+                    `${actor.name}`,
                     "color: red; font-weight: bold;"
                 );
 
@@ -1092,25 +1054,83 @@ if (globalThis.movementTracker) {
             if (!passed) return;
 
 
-            const cost =
-                Number(
-                    passed.cost ?? 0
-                );
-
-
             const distance =
                 Number(
                     passed.distance ?? 0
                 );
 
 
-            if (cost <= 0) return;
+            const travelCost =
+                Number(
+                    passed.cost ?? 0
+                );
 
+
+            if (
+                travelCost <= 0 &&
+                distance <= 0
+            ) {
+
+                return;
+
+            }
+
+
+            // ------------------------------------------------
+            // CHECK PRONE BEFORE RECORDING
+            //
+            // This MUST happen before the effect is removed.
+            // ------------------------------------------------
+
+            const wasProne =
+                isProne(actor);
+
+
+            const standCost =
+                wasProne
+                    ? getProneStandCost(actor)
+                    : 0;
+
+
+            // ------------------------------------------------
+            // TOTAL MOVEMENT COST
+            //
+            // Prone movement:
+            //
+            //     Stand cost + travel cost
+            //
+            // Normal movement:
+            //
+            //     Travel cost
+            // ------------------------------------------------
+
+            const totalCost =
+                travelCost +
+                standCost;
+
+
+            console.log(
+                `%c[MOVEMENT TRACKER] COMPLETED MOVEMENT ${actor.name} → ` +
+                `${distance} ft travel + ` +
+                `${wasProne ? `${standCost} ft standing` : "0 ft standing"} = ` +
+                `${totalCost} ft total`,
+                "color: orange; font-weight: bold;"
+            );
+
+
+            // ------------------------------------------------
+            // RECORD MOVEMENT
+            //
+            // The Prone effect is still present at this point.
+            // recordMovement removes it only after the movement
+            // has actually happened.
+            // ------------------------------------------------
 
             recordMovement(
                 actor,
-                cost,
-                distance
+                totalCost,
+                distance,
+                wasProne
             );
 
         }
@@ -1148,8 +1168,7 @@ if (globalThis.movementTracker) {
 
 
             console.log(
-                `%c[MOVEMENT TRACKER] DASH ACTIVITY DETECTED → ` +
-                `${actor.name}`,
+                `%c[MOVEMENT TRACKER] DASH ACTIVITY DETECTED → ${actor.name}`,
                 "color: cyan; font-weight: bold;"
             );
 
@@ -1167,82 +1186,6 @@ if (globalThis.movementTracker) {
                 );
 
             }
-
-        }
-    );
-
-
-    // ============================================================
-    // EFFECT CHANGE DETECTION
-    //
-    // When an actor changes, recalculate movement.
-    //
-    // This lets movement modifiers update without requiring a
-    // new turn.
-    // ============================================================
-
-    Hooks.on(
-        "updateActor",
-        (
-            actor,
-            changed
-        ) => {
-
-            if (!actors.has(actor.id)) return;
-
-
-            if (
-                changed.system?.attributes?.movement ||
-                changed.effects
-            ) {
-
-                recalculate(actor);
-
-            }
-
-        }
-    );
-
-
-    // ============================================================
-    // EFFECT CREATION / REMOVAL
-    // ============================================================
-
-    Hooks.on(
-        "createActiveEffect",
-        effect => {
-
-            const actor =
-                effect.parent;
-
-
-            if (!actor?.id) return;
-
-
-            if (!actors.has(actor.id)) return;
-
-
-            recalculate(actor);
-
-        }
-    );
-
-
-    Hooks.on(
-        "deleteActiveEffect",
-        effect => {
-
-            const actor =
-                effect.parent;
-
-
-            if (!actor?.id) return;
-
-
-            if (!actors.has(actor.id)) return;
-
-
-            recalculate(actor);
 
         }
     );
