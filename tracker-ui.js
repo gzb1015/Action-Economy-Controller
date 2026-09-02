@@ -26,33 +26,48 @@
 
     function createTrackerUI() {
 
-        let ui = document.getElementById(UI_ID);
+    let ui =
+        document.getElementById(UI_ID);
 
-        if (ui) return ui;
+    if (ui) return ui;
 
-        ui = document.createElement("div");
-        ui.id = UI_ID;
 
-        ui.innerHTML = `
-            <div class="aec-stamina-title">MOVEMENT</div>
+    ui =
+        document.createElement("div");
 
-            <div class="aec-stamina-wheel" aria-label="Movement remaining">
-                <div class="aec-stamina-ring">
-                    <div class="aec-stamina-center">
-                        <span id="aec-movement-value">30 ft</span>
-                        <small>REMAINING</small>
-                    </div>
+    ui.id =
+        UI_ID;
+
+    ui.innerHTML = `
+        <div
+            class="aec-stamina-wheel"
+            aria-label="Movement remaining"
+        >
+            <div class="aec-stamina-ring">
+
+                <div class="aec-stamina-center">
+
+                    <span id="aec-movement-value">
+                        30
+                    </span>
+
                 </div>
+
             </div>
+        </div>
 
-            <div id="aec-warning">NO MORE MOVEMENT</div>
-        `;
+        <div id="aec-warning">
+            NO MORE MOVEMENT
+        </div>
+    `;
 
-        document.body.appendChild(ui);
-        injectStyles();
 
-        return ui;
-    }
+    document.body.appendChild(ui);
+
+    injectStyles();
+
+    return ui;
+}
 
 
     // ============================================================
