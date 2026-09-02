@@ -2,7 +2,7 @@
   "id": "action-economy-controller",
   "title": "Action Economy Controller",
   "description": "Action, Bonus Action, Reaction, and Movement tracking for Foundry VTT.",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "type": "module",
   "authors": [
     {
@@ -19,5 +19,5 @@
     "tracker-ui.js"
   ],
   "manifest":"https://raw.githubusercontent.com/gzb1015/Action-Economy-Controller/main/module.json",
-  "download": "https://github.com/gzb1015/Action-Economy-Controller/releases/download/v1.2.5/action-economy-controller.zip"
+  "download": "https://github.com/gzb1015/Action-Economy-Controller/releases/download/v1.2.6/action-economy-controller.zip"
 }
