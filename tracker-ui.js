@@ -81,152 +81,231 @@
         const style = document.createElement("style");
         style.id = STYLE_ID;
 
-        style.textContent = `
-            #${UI_ID} {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                z-index: 1000;
+       style.textContent = `
 
-                width: 118px;
-                min-height: 118px;
+    /* ============================================================
+       MOVEMENT TRACKER
+       Compact BG3 HUD integration
+       ============================================================ */
 
-                display: none;
-                flex-direction: column;
-                align-items: center;
+    #${UI_ID} {
 
-                user-select: none;
-                pointer-events: none;
+        position: static;
 
-                color: white;
-                font-family: Signika, sans-serif;
+        width: 24px;
+        height: 24px;
 
-                filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45));
-            }
+        margin-left: 3px;
+        margin-right: 2px;
 
-            #${UI_ID} .aec-stamina-title {
-                width: 100%;
-                margin-bottom: 5px;
+        flex: 0 0 24px;
 
-                text-align: center;
-                font-size: 12px;
-                font-weight: bold;
-                letter-spacing: 1.5px;
+        display: none;
 
-                text-shadow: 0 1px 2px black, 0 0 4px black;
-            }
+        align-items: center;
+        justify-content: center;
 
-            #${UI_ID} .aec-stamina-wheel {
-                width: 96px;
-                height: 96px;
+        user-select: none;
 
-                position: relative;
+        /*
+         * The wheel should never steal clicks from
+         * the BG3 HUD.
+         */
+        pointer-events: none;
 
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
+        color: white;
 
-            #${UI_ID} .aec-stamina-ring {
-                --aec-progress: 100%;
+        font-family:
+            Signika,
+            sans-serif;
 
-                width: 88px;
-                height: 88px;
+        filter:
+            drop-shadow(
+                0 1px 3px
+                rgba(0,0,0,0.65)
+            );
 
-                border-radius: 50%;
+        position: relative;
+    }
 
-                background:
-                    conic-gradient(
-                        from -90deg,
-                        #e7c85a 0 var(--aec-progress),
-                        rgba(20,20,20,0.65) var(--aec-progress) 100%
-                    );
 
-                position: relative;
+    /* ============================================================
+       STAMINA WHEEL
+       ============================================================ */
 
-                box-shadow:
-                    0 0 8px rgba(0,0,0,0.7),
-                    inset 0 0 5px rgba(255,255,255,0.25);
-            }
+    #${UI_ID} .aec-stamina-wheel {
 
-            #${UI_ID} .aec-stamina-ring::before {
-                content: "";
-                position: absolute;
-                inset: 0;
+        width: 24px;
+        height: 24px;
 
-                border-radius: 50%;
+        position: relative;
 
-                background:
-                    repeating-conic-gradient(
-                        from -90deg,
-                        rgba(20,20,20,0.75) 0deg 2deg,
-                        transparent 2deg 30deg
-                    );
+        display: flex;
 
-                -webkit-mask:
-                    radial-gradient(
-                        farthest-side,
-                        transparent calc(100% - 9px),
-                        #000 calc(100% - 8px)
-                    );
+        align-items: center;
+        justify-content: center;
+    }
 
-                mask:
-                    radial-gradient(
-                        farthest-side,
-                        transparent calc(100% - 9px),
-                        #000 calc(100% - 8px)
-                    );
-            }
 
-            #${UI_ID} .aec-stamina-center {
-                position: absolute;
-                inset: 12px;
+    /* ============================================================
+       OUTER RING
+       ============================================================ */
 
-                border-radius: 50%;
+    #${UI_ID} .aec-stamina-ring {
 
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
+        --aec-progress: 100%;
 
-                background: rgba(18,18,18,0.88);
-                border: 1px solid rgba(255,255,255,0.18);
+        width: 22px;
+        height: 22px;
 
-                box-shadow: inset 0 0 8px rgba(0,0,0,0.7);
-            }
+        border-radius: 50%;
 
-            #${UI_ID} #aec-movement-value {
-                font-size: 16px;
-                font-weight: bold;
-                line-height: 1;
+        position: relative;
 
-                color: rgb(255,245,190);
+        background:
+            conic-gradient(
+                from -90deg,
 
-                text-shadow: 0 1px 2px black, 0 0 4px black;
-            }
+                #e7c85a
+                    0 var(--aec-progress),
 
-            #${UI_ID} .aec-stamina-center small {
-                margin-top: 3px;
-                font-size: 7px;
-                letter-spacing: 0.8px;
-                opacity: 0.8;
-            }
+                rgba(20,20,20,0.70)
+                    var(--aec-progress) 100%
+            );
 
-            #${UI_ID} #aec-warning {
-                display: none;
+        box-shadow:
+            0 0 3px
+                rgba(0,0,0,0.85),
 
-                margin-top: 2px;
+            inset 0 0 2px
+                rgba(255,255,255,0.30);
+    }
 
-                font-size: 10px;
-                font-weight: bold;
-                letter-spacing: 0.7px;
 
-                color: rgb(255,90,90);
-                text-align: center;
+    /* ============================================================
+       SEGMENTED / TACTICAL RING DETAIL
+       ============================================================ */
 
-                text-shadow: 0 1px 2px black, 0 0 4px black;
-            }
-        `;
+    #${UI_ID} .aec-stamina-ring::before {
+
+        content: "";
+
+        position: absolute;
+
+        inset: 0;
+
+        border-radius: 50%;
+
+        background:
+            repeating-conic-gradient(
+                from -90deg,
+
+                rgba(20,20,20,0.80)
+                    0deg 3deg,
+
+                transparent
+                    3deg 30deg
+            );
+
+        -webkit-mask:
+            radial-gradient(
+                farthest-side,
+
+                transparent
+                    calc(100% - 3px),
+
+                #000
+                    calc(100% - 2px)
+            );
+
+        mask:
+            radial-gradient(
+                farthest-side,
+
+                transparent
+                    calc(100% - 3px),
+
+                #000
+                    calc(100% - 2px)
+            );
+    }
+
+
+    /* ============================================================
+       CENTER
+       ============================================================ */
+
+    #${UI_ID} .aec-stamina-center {
+
+        position: absolute;
+
+        inset: 5px;
+
+        border-radius: 50%;
+
+        display: flex;
+
+        align-items: center;
+        justify-content: center;
+
+        background:
+            rgba(18,18,18,0.92);
+
+        border:
+            1px solid
+            rgba(255,255,255,0.18);
+
+        box-shadow:
+            inset 0 0 3px
+            rgba(0,0,0,0.80);
+    }
+
+
+    /* ============================================================
+       MOVEMENT NUMBER
+       ============================================================ */
+
+    #${UI_ID} #aec-movement-value {
+
+        font-size: 7px;
+
+        font-weight: bold;
+
+        line-height: 1;
+
+        color:
+            rgb(255,245,190);
+
+        text-shadow:
+            0 1px 2px black;
+    }
+
+
+    /* ============================================================
+       EXHAUSTED WARNING
+       ============================================================ */
+
+    #${UI_ID} #aec-warning {
+
+        display: none;
+    }
+
+
+    /* ============================================================
+       BG3 HUD INTEGRATION
+       ============================================================ */
+
+    .bg3-filter-container
+        #${UI_ID} {
+
+        position: static;
+
+        display: flex;
+
+        flex: 0 0 24px;
+    }
+
+`;
 
         document.head.appendChild(style);
     }
