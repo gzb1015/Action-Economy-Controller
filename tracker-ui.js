@@ -414,7 +414,7 @@
                 : 0;
 
         value.textContent =
-            `${Math.ceil(remaining)} ft`;
+            `${Math.ceil(remaining)}`;
 
         ring.style.setProperty(
             "--aec-progress",
@@ -426,14 +426,20 @@
             value.style.color =
                 "rgb(255,102,102)";
 
+            ring.style.filter =
+                "drop-shadow(0 0 3px rgba(255,70,70,0.8))";
+
             if (warning) {
-                warning.style.display = "block";
+                warning.style.display = "none";
             }
 
         } else {
 
             value.style.color =
                 "rgb(255,245,190)";
+
+            ring.style.filter =
+                "none";
 
             if (warning) {
                 warning.style.display = "none";
@@ -499,13 +505,25 @@
         window.__aecBG3Watcher =
             new MutationObserver(() => {
 
+                /*
+                 * BG3 can rebuild the HUD.
+                 * Reattach our movement wheel if necessary.
+                 */
+                attachTrackerToBG3Filter();
+
                 setTrackerCombatVisibility();
 
-                if (game.combat?.started === true) {
-                    setBG3CombatVisibility();
-                }
-            });
 
+                if (
+                    game.combat?.started === true
+                ) {
+
+                    setBG3CombatVisibility();
+
+                }
+
+            });
+        
         window.__aecBG3Watcher.observe(
             document.body,
             {
@@ -566,12 +584,15 @@
     function initialize() {
 
         createTrackerUI();
-
+        
+        attachTrackerToBG3Filter();
+        
         startBG3Watcher();
 
         registerCombatHooks();
 
         setTrackerCombatVisibility();
+        
         setBG3CombatVisibility();
 
         console.log(
