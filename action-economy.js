@@ -9,9 +9,7 @@
 //   REACTION
 //
 // Enforces one use per resource per turn.
-//
-// Also synchronizes manually-used BG3 HUD Action filters
-// back into the Action Economy controller.
+// Synchronizes with BG3 HUD.
 // ============================================================
 
 console.log(
@@ -145,7 +143,6 @@ if (globalThis.actionEconomy) {
                 game.combat;
 
 
-            // Outside combat there is no turn restriction.
             if (!combat) return true;
 
 
@@ -194,10 +191,35 @@ if (globalThis.actionEconomy) {
             if (!filter) return;
 
 
+            // ----------------------------------------------------
+            // Prevent our manual Action hook from interpreting
+            // this AEC-generated HUD update as a player click.
+            // ----------------------------------------------------
+
+            if (
+                resource === "action" &&
+                isUsed
+            ) {
+
+                filters.__aecSyncingAction = true;
+
+            }
+
+
             filters._syncFilterUsedState(
                 filter,
                 isUsed
             );
+
+
+            if (
+                resource === "action" &&
+                isUsed
+            ) {
+
+                filters.__aecSyncingAction = false;
+
+            }
 
 
             console.log(
@@ -209,76 +231,6 @@ if (globalThis.actionEconomy) {
                 isUsed
                     ? "USED"
                     : "AVAILABLE"
-            );
-
-        },
-
-
-        // --------------------------------------------------------
-        // SYNC MANUALLY-USED BG3 ACTION FILTER
-        //
-        // BG3 HUD tracks manually-used filters internally in:
-        //
-        //     filters._used
-        //
-        // A manually-used Action filter appears there as:
-        //
-        //     FilterButton.data.id === "action"
-        //
-        // This bridges that HUD state back into AEC.
-        // --------------------------------------------------------
-
-        syncManualActionFilter() {
-
-            const hud =
-                globalThis.ui?.BG3HUD_APP;
-
-
-            if (!hud) return;
-
-
-            const filters =
-                hud.components?.filters;
-
-
-            if (!filters) return;
-
-
-            const actionIsUsed =
-                filters._used?.some(
-                    filter =>
-                        filter?.data?.id === "action"
-                );
-
-
-            // Nothing to synchronize if Action is not
-            // currently marked as used in the HUD.
-            if (!actionIsUsed) return;
-
-
-            const actor =
-                filters.actor;
-
-
-            if (!actor) return;
-
-
-            const state =
-                this.getState(actor);
-
-
-            // Already synchronized.
-            if (state.action) return;
-
-
-            state.action = true;
-
-
-            console.log(
-                "%c[ACTION ECONOMY] MANUAL ACTION FILTER DETECTED",
-                "color: orange; font-weight: bold;",
-                actor.name,
-                "→ action"
             );
 
         },
@@ -385,6 +337,242 @@ if (globalThis.actionEconomy) {
 
 
         // --------------------------------------------------------
+        // MANUAL BG3 HUD ACTION FILTER
+        //
+        // A player can right-click the Action filter in BG3 HUD.
+        // BG3 HUD changes FilterContainer.used, which ultimately
+        // modifies filters._used.
+        //
+        // We intercept that setter and treat manually marking
+        // Action as used as consuming the Action Economy resource.
+        //
+        // IMPORTANT:
+        // Removing the HUD filter does NOT refund the Action.
+        // The AEC state remains consumed until the turn resets.
+        // --------------------------------------------------------
+
+        installHUDActionFilterHook() {
+
+            if (
+                globalThis.__aecHUDActionFilterHookInstalled
+            ) {
+
+                console.log(
+                    "[ACTION ECONOMY] HUD Action filter hook already installed."
+                );
+
+                return;
+
+            }
+
+
+            const hud =
+                globalThis.ui?.BG3HUD_APP;
+
+
+            if (!hud) {
+
+                console.warn(
+                    "[ACTION ECONOMY] BG3 HUD not available; Action filter hook not installed."
+                );
+
+                return;
+
+            }
+
+
+            const filters =
+                hud.components?.filters;
+
+
+            if (!filters) {
+
+                console.warn(
+                    "[ACTION ECONOMY] BG3 HUD filters not available; Action filter hook not installed."
+                );
+
+                return;
+
+            }
+
+
+            const filterContainerProto =
+                Object.getPrototypeOf(
+                    Object.getPrototypeOf(filters)
+                );
+
+
+            const descriptor =
+                Object.getOwnPropertyDescriptor(
+                    filterContainerProto,
+                    "used"
+                );
+
+
+            if (
+                !descriptor?.set ||
+                !descriptor?.get
+            ) {
+
+                console.warn(
+                    "[ACTION ECONOMY] Could not locate FilterContainer.used setter."
+                );
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Save original setter.
+            // ----------------------------------------------------
+
+            globalThis.__aecOriginalHUDUsedSetter =
+                descriptor.set;
+
+
+            // ----------------------------------------------------
+            // Replace setter while preserving original behavior.
+            // ----------------------------------------------------
+
+            Object.defineProperty(
+                filterContainerProto,
+                "used",
+                {
+
+                    configurable:
+                        descriptor.configurable,
+
+                    enumerable:
+                        descriptor.enumerable,
+
+                    get:
+                        descriptor.get,
+
+                    set(value) {
+
+                        // ----------------------------------------
+                        // Always allow BG3 HUD to perform its
+                        // normal filter behavior first.
+                        // ----------------------------------------
+
+                        globalThis.__aecOriginalHUDUsedSetter.call(
+                            this,
+                            value
+                        );
+
+
+                        // ----------------------------------------
+                        // Ignore Action changes generated by AEC
+                        // itself.
+                        // ----------------------------------------
+
+                        if (
+                            this.__aecSyncingAction
+                        ) {
+
+                            return;
+
+                        }
+
+
+                        // ----------------------------------------
+                        // Only care about the Action filter.
+                        // ----------------------------------------
+
+                        const filterId =
+                            value?.data?.id;
+
+
+                        if (
+                            filterId !== "action"
+                        ) {
+
+                            return;
+
+                        }
+
+
+                        // ----------------------------------------
+                        // The setter toggles the filter.
+                        //
+                        // We only care about the filter becoming
+                        // USED. Turning it off must never refund
+                        // the Action.
+                        // ----------------------------------------
+
+                        const actionIsUsed =
+                            this._used?.some(
+                                filter =>
+                                    filter?.data?.id === "action"
+                            );
+
+
+                        if (!actionIsUsed) {
+
+                            return;
+
+                        }
+
+
+                        const actor =
+                            this.actor;
+
+
+                        if (!actor) return;
+
+
+                        const controller =
+                            globalThis.actionEconomy;
+
+
+                        if (!controller) return;
+
+
+                        const state =
+                            controller.getState(actor);
+
+
+                        if (!state) return;
+
+
+                        // Already consumed.
+                        if (state.action) return;
+
+
+                        // ----------------------------------------
+                        // Manual Action filter = Action consumed.
+                        // ----------------------------------------
+
+                        state.action = true;
+
+
+                        console.log(
+                            "%c[ACTION ECONOMY] MANUAL ACTION FILTER DETECTED",
+                            "color: orange; font-weight: bold;",
+                            actor.name,
+                            "→ action"
+                        );
+
+                    }
+
+                }
+            );
+
+
+            globalThis.__aecHUDActionFilterHookInstalled =
+                true;
+
+
+            console.log(
+                "%c[ACTION ECONOMY] BG3 HUD Action filter hook installed.",
+                "color: lime; font-weight: bold;"
+            );
+
+        },
+
+
+        // --------------------------------------------------------
         // GET DISPLAY NAME
         // --------------------------------------------------------
 
@@ -401,48 +589,6 @@ if (globalThis.actionEconomy) {
         }
 
     };
-
-
-    // ============================================================
-    // BG3 HUD MANUAL ACTION FILTER WATCHER
-    //
-    // Watches for changes to the HUD filter classes.
-    //
-    // We do NOT rely solely on the DOM class. When a change occurs,
-    // syncManualActionFilter() checks the HUD's actual internal
-    // filters._used collection.
-    // ============================================================
-
-    function startManualActionFilterWatcher() {
-
-        if (globalThis.__aecManualActionWatcher) return;
-
-
-        globalThis.__aecManualActionWatcher =
-            new MutationObserver(() => {
-
-                globalThis.actionEconomy
-                    ?.syncManualActionFilter();
-
-            });
-
-
-        globalThis.__aecManualActionWatcher.observe(
-            document.body,
-            {
-                subtree: true,
-                attributes: true,
-                attributeFilter: ["class"]
-            }
-        );
-
-
-        console.log(
-            "%c[ACTION ECONOMY] Manual Action filter watcher started.",
-            "color: orange; font-weight: bold;"
-        );
-
-    }
 
 
     // ============================================================
@@ -474,8 +620,6 @@ if (globalThis.actionEconomy) {
                 );
 
 
-            // Activities without an Action Economy cost
-            // are not handled here.
             if (!resource) return;
 
 
@@ -483,8 +627,6 @@ if (globalThis.actionEconomy) {
                 game.combat;
 
 
-            // Outside combat:
-            // Do not enforce turn-based Action Economy.
             if (!combat) return;
 
 
@@ -494,8 +636,6 @@ if (globalThis.actionEconomy) {
                 );
 
 
-            // Actor is not part of the active combat.
-            // Do not interfere with their activity.
             if (!combatant) return;
 
 
@@ -570,10 +710,6 @@ if (globalThis.actionEconomy) {
 
             // ----------------------------------------------------
             // RESERVE RESOURCE
-            //
-            // We reserve it here, before the activity can continue,
-            // so a second rapid click cannot sneak another Action
-            // through before the first activity finishes.
             // ----------------------------------------------------
 
             state[resource] = true;
@@ -594,9 +730,6 @@ if (globalThis.actionEconomy) {
 
     // ============================================================
     // CONFIRM SUCCESSFUL ACTIVITY
-    //
-    // The resource was already reserved by preUseActivity.
-    // Here we synchronize the HUD after the activity activates.
     // ============================================================
 
     Hooks.on(
@@ -645,7 +778,6 @@ if (globalThis.actionEconomy) {
                 );
 
 
-            // Only sync if this resource was reserved.
             if (!state[resource]) return;
 
 
@@ -699,26 +831,29 @@ if (globalThis.actionEconomy) {
 
 
     // ============================================================
-    // CONTROLLER READY
+    // INSTALL BG3 HUD ACTION FILTER HOOK
+    //
+    // BG3 HUD may not exist at the instant this file executes,
+    // so install it when the Foundry UI is ready.
     // ============================================================
 
     Hooks.once(
         "ready",
         () => {
 
-            startManualActionFilterWatcher();
+            setTimeout(() => {
 
-            console.log(
-                "%c[ACTION ECONOMY] CONTROLLER READY",
-                "color: lime; font-size: 16px; font-weight: bold;"
-            );
+                globalThis.actionEconomy
+                    ?.installHUDActionFilterHook();
+
+            }, 500);
 
         }
     );
 
 
     // ============================================================
-    // CONTROLLER CREATED
+    // CONTROLLER READY
     // ============================================================
 
     console.log(
