@@ -69,6 +69,43 @@
     return ui;
 }
 
+    function attachTrackerToBG3Filter() {
+
+    const ui =
+        document.getElementById(UI_ID);
+
+    const filter =
+        document.querySelector(
+            ".bg3-filter-container"
+        );
+
+    if (!ui || !filter) return;
+
+
+    /*
+     * Already attached to the correct container.
+     */
+    if (ui.parentElement === filter) {
+        return;
+    }
+
+
+    /*
+     * Move the movement tracker into
+     * the BG3 action filter row.
+     *
+     * appendChild automatically removes it
+     * from its previous parent.
+     */
+    filter.appendChild(ui);
+
+
+    console.log(
+        "%c[AEC UI] Movement wheel attached to BG3 action HUD.",
+        "color: cyan; font-weight: bold;"
+    );
+}
+
 
     // ============================================================
     // CSS
@@ -317,17 +354,29 @@
 
     function setTrackerCombatVisibility() {
 
-        const ui = document.getElementById(UI_ID);
+    const ui =
+        document.getElementById(UI_ID);
 
-        if (!ui) return;
+    if (!ui) return;
 
-        const inCombat =
-            !!game.combat &&
-            game.combat.started === true;
 
-        ui.style.display =
-            inCombat ? "flex" : "none";
-    }
+    /*
+     * Make sure the tracker is actually inside
+     * the BG3 HUD before changing visibility.
+     */
+    attachTrackerToBG3Filter();
+
+
+    const inCombat =
+        !!game.combat &&
+        game.combat.started === true;
+
+
+    ui.style.display =
+        inCombat
+            ? "flex"
+            : "none";
+}
 
 
     // ============================================================
