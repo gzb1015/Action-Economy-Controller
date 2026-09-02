@@ -579,97 +579,208 @@ if (globalThis.actionEconomy) {
         // ========================================================
         // KEEP ACTION FILTER IN SYNC WITH AEC STATE
         //
-        // BG3 HUD can refresh its filters when the token moves,
-        // when the HUD updates, or when other UI changes occur.
+        // BG3 HUD calls syncUsedActionFilters() when its filters
+        // refresh. That happens during movement and other HUD
+        // updates.
         //
-        // If AEC says Action is already consumed, restore the
-        // Action filter's USED state after those updates.
+        // BG3 HUD's own method only synchronizes Bonus Action and
+        // Reaction. We therefore run its original method first,
+        // then restore the Action USED state if AEC says the
+        // Action has already been consumed.
         // ========================================================
 
         installHUDActionPersistenceHooks() {
-            if (globalThis.__aecHUDActionPersistenceHooksInstalled) return;
 
-            const filters = ui.BG3HUD_APP?.components?.filters;
+            if (
+                globalThis.__aecHUDActionPersistenceHooksInstalled
+            ) {
+
+                console.log(
+                    "[ACTION ECONOMY] HUD Action persistence hook already installed."
+                );
+
+                return;
+
+            }
+
+
+            const filters =
+                globalThis.ui?.BG3HUD_APP?.components?.filters;
+
+
             if (!filters) {
+
                 console.warn(
                     "[ACTION ECONOMY] BG3 HUD filters not available for persistence hook."
                 );
+
                 return;
+
             }
 
-            const dndProto = Object.getPrototypeOf(filters);
-            const originalSync = dndProto.syncUsedActionFilters;
 
-            if (typeof originalSync !== "function") {
+            // DnD5eFilterContainer's own prototype.
+            const dndProto =
+                Object.getPrototypeOf(filters);
+
+
+            const originalSync =
+                dndProto.syncUsedActionFilters;
+
+
+            if (
+                typeof originalSync !== "function"
+            ) {
+
                 console.warn(
                     "[ACTION ECONOMY] syncUsedActionFilters() not found."
                 );
+
                 return;
+
             }
 
-            if (globalThis.__aecOriginalSyncUsedActionFilters) {
+
+            // ----------------------------------------------------
+            // Prevent duplicate wrapping.
+            // ----------------------------------------------------
+
+            if (
+                globalThis.__aecOriginalSyncUsedActionFilters
+            ) {
+
                 console.warn(
                     "[ACTION ECONOMY] syncUsedActionFilters hook already exists."
                 );
+
                 return;
+
             }
 
-            globalThis.__aecOriginalSyncUsedActionFilters = originalSync;
 
-            dndProto.syncUsedActionFilters = function (...args) {
+            globalThis.__aecOriginalSyncUsedActionFilters =
+                originalSync;
 
-               // Let BG3 HUD perform its normal Bonus Action / Reaction sync.
-                const result = globalThis.__aecOriginalSyncUsedActionFilters.apply(
-                    this,
-                    args
-                );
 
-                const actor = this.actor;
-                if (!actor) return result;
+            // ----------------------------------------------------
+            // Replace syncUsedActionFilters().
+            // ----------------------------------------------------
 
-                const state = globalThis.actionEconomy?.getState(actor);
-                if (!state) return result;
+            dndProto.syncUsedActionFilters =
+                function (...args) {
 
-                // Only restore the HUD indicator if AEC says the Action
-                // has already been consumed.
-                if (!state.action) return result;
+                    // --------------------------------------------
+                    // FIRST:
+                    // Let BG3 HUD perform its normal
+                    // Bonus Action / Reaction synchronization.
+                    // --------------------------------------------
 
-                const actionFilter = this
-                    .getAllFilterButtons()
-                    .find(f => f.data?.id === "action");
-
-                if (!actionFilter) return result;
-
-                const currentlyUsed = this._used?.includes(actionFilter);
-
-                if (!currentlyUsed) {
-
-                    // Prevent our own setter from being interpreted as
-                    // the player manually changing the Action filter.
-                    this.__aecSyncingAction = true;
-
-                    try {
-                        this.used = actionFilter;
-
-                        console.log(
-                            "%c[ACTION ECONOMY] RESTORED HUD ACTION INDICATOR",
-                            "color: cyan; font-weight: bold;",
-                            actor.name
+                    const result =
+                        globalThis.__aecOriginalSyncUsedActionFilters.apply(
+                            this,
+                            args
                         );
-                    } finally {
-                        this.__aecSyncingAction = false;
+
+
+                    const actor =
+                        this.actor;
+
+
+                    if (!actor) return result;
+
+
+                    const state =
+                        globalThis.actionEconomy?.getState(
+                            actor
+                        );
+
+
+                    if (!state) return result;
+
+
+                    // --------------------------------------------
+                    // AEC says Action is available.
+                    //
+                    // Do not interfere with the HUD.
+                    // --------------------------------------------
+
+                    if (!state.action) return result;
+
+
+                    // --------------------------------------------
+                    // Find the current Action filter.
+                    // --------------------------------------------
+
+                    const actionFilter =
+                        this
+                            .getAllFilterButtons()
+                            .find(
+                                filter =>
+                                    filter.data?.id === "action"
+                            );
+
+
+                    if (!actionFilter) return result;
+
+
+                    // --------------------------------------------
+                    // Check whether BG3 HUD currently considers
+                    // the Action filter USED.
+                    // --------------------------------------------
+
+                    const currentlyUsed =
+                        this._used?.includes(
+                            actionFilter
+                        );
+
+
+                    // --------------------------------------------
+                    // Restore the USED state if BG3 HUD refreshed
+                    // the filter and removed it.
+                    // --------------------------------------------
+
+                    if (!currentlyUsed) {
+
+                        // Prevent our own setter from being
+                        // interpreted as a manual player action.
+                        this.__aecSyncingAction = true;
+
+
+                        try {
+
+                            this.used =
+                                actionFilter;
+
+
+                            console.log(
+                                "%c[ACTION ECONOMY] RESTORED HUD ACTION INDICATOR",
+                                "color: cyan; font-weight: bold;",
+                                actor.name
+                            );
+
+                        } finally {
+
+                            this.__aecSyncingAction = false;
+
+                        }
+
                     }
-                }
 
-                return result;
-            };
 
-            globalThis.__aecHUDActionPersistenceHooksInstalled = true;
+                    return result;
+
+                };
+
+
+            globalThis.__aecHUDActionPersistenceHooksInstalled =
+                true;
+
 
             console.log(
                 "%c[ACTION ECONOMY] BG3 HUD Action persistence hook installed on syncUsedActionFilters().",
                 "color: lime; font-weight: bold;"
             );
+
         },
 
 
@@ -947,46 +1058,119 @@ if (globalThis.actionEconomy) {
     // ============================================================
     // INSTALL BG3 HUD HOOKS
     //
-    // BG3 HUD may not exist at the instant this file executes,
-    // so wait until Foundry is ready.
+    // BG3 HUD may initialize after Foundry's ready hook.
+    // Wait until its filters actually exist.
     // ============================================================
 
-   Hooks.once("ready", () => {
-    const installHUDHooks = () => {
-        const filters = ui.BG3HUD_APP?.components?.filters;
+    Hooks.once("ready", () => {
 
-        if (!filters) {
-            console.log(
-                "[ACTION ECONOMY] Waiting for BG3 HUD filters..."
-            );
-            return false;
+        const installHUDHooks = () => {
+
+            const hud =
+                globalThis.ui?.BG3HUD_APP;
+
+
+            const filters =
+                hud?.components?.filters;
+
+
+            if (!filters) {
+
+                console.log(
+                    "[ACTION ECONOMY] Waiting for BG3 HUD filters..."
+                );
+
+                return false;
+
+            }
+
+
+            globalThis.actionEconomy
+                .installHUDActionFilterHook();
+
+
+            globalThis.actionEconomy
+                .installHUDActionPersistenceHooks();
+
+
+            return true;
+
+        };
+
+
+        // --------------------------------------------------------
+        // Try immediately.
+        // --------------------------------------------------------
+
+        if (
+            installHUDHooks()
+        ) {
+
+            return;
+
         }
 
-        controller.installHUDActionFilterHook();
-        controller.installHUDActionPersistenceHooks();
 
-        return true;
-    };
+        // --------------------------------------------------------
+        // BG3 HUD may initialize after Foundry's ready hook.
+        //
+        // Keep checking until the filters actually exist.
+        // --------------------------------------------------------
 
-    // Try immediately.
-    if (installHUDHooks()) return;
+        const interval =
+            setInterval(
+                () => {
 
-    // BG3 HUD may initialize after the Foundry ready hook.
-    // Check periodically until it becomes available.
-    const interval = setInterval(() => {
-        if (installHUDHooks()) {
-            clearInterval(interval);
-            console.log(
-                "[ACTION ECONOMY] BG3 HUD hooks successfully installed after waiting."
+                    if (
+                        installHUDHooks()
+                    ) {
+
+                        clearInterval(
+                            interval
+                        );
+
+
+                        console.log(
+                            "%c[ACTION ECONOMY] BG3 HUD hooks successfully installed.",
+                            "color: lime; font-weight: bold;"
+                        );
+
+                    }
+
+                },
+                250
             );
-        }
-    }, 250);
 
-    // Safety timeout so we don't leave an interval running forever.
-    setTimeout(() => {
-        clearInterval(interval);
-    }, 30000);
-});
+
+        // --------------------------------------------------------
+        // Safety timeout.
+        // --------------------------------------------------------
+
+        setTimeout(
+            () => {
+
+                clearInterval(
+                    interval
+                );
+
+
+                if (
+                    !globalThis.__aecHUDActionFilterHookInstalled ||
+                    !globalThis.__aecHUDActionPersistenceHooksInstalled
+                ) {
+
+                    console.warn(
+                        "[ACTION ECONOMY] BG3 HUD hook initialization timeout reached."
+                    );
+
+                }
+
+            },
+            30000
+        );
+
+    });
+
 
     // ============================================================
     // CONTROLLER READY
