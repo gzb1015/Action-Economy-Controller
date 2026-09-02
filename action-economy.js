@@ -2,16 +2,13 @@
 // ACTION ECONOMY CONTROLLER
 // Foundry VTT 13
 // D&D 5e 5.3.3
-// Midi-QOL 13.0.56
-// BG3 Inspired HUD 0.6.0
 //
 // Tracks:
 //   ACTION
 //   BONUS ACTION
 //   REACTION
 //
-// Enforces one use per resource per turn and synchronizes
-// the resource state with BG3 Inspired HUD.
+// Enforces one use per resource per turn.
 // ============================================================
 
 console.log(
@@ -21,54 +18,175 @@ console.log(
 
 
 // ============================================================
-// ACTION ECONOMY CONTROLLER
+// PREVENT DUPLICATE INITIALIZATION
 // ============================================================
 
-if (!globalThis.actionEconomy) {
+if (globalThis.actionEconomy) {
+
+    console.warn(
+        "[ACTION ECONOMY] Already initialized."
+    );
+
+} else {
+
+    // ============================================================
+    // CONTROLLER
+    // ============================================================
 
     globalThis.actionEconomy = {
 
         // --------------------------------------------------------
-        // Actor resource states
+        // ACTOR RESOURCE STATES
         // --------------------------------------------------------
 
         actors: new Map(),
 
+
         getState(actor) {
+
+            if (!actor) return null;
+
 
             if (!this.actors.has(actor.id)) {
 
-                this.actors.set(actor.id, {
-                    action: false,
-                    bonus: false,
-                    reaction: false
-                });
+                this.actors.set(
+                    actor.id,
+                    {
+                        action: false,
+                        bonus: false,
+                        reaction: false
+                    }
+                );
 
             }
 
+
             return this.actors.get(actor.id);
+
         },
 
 
-        // ========================================================
+        // --------------------------------------------------------
+        // GET RESOURCE TYPE
+        // --------------------------------------------------------
+
+        getResource(activity) {
+
+            const type =
+                activity?.activation?.type;
+
+
+            if (type === "action") {
+
+                return "action";
+
+            }
+
+
+            if (type === "bonus") {
+
+                return "bonus";
+
+            }
+
+
+            if (type === "reaction") {
+
+                return "reaction";
+
+            }
+
+
+            return null;
+
+        },
+
+
+        // --------------------------------------------------------
+        // GET COMBATANT
+        // --------------------------------------------------------
+
+        getCombatant(actor) {
+
+            if (!actor) return null;
+
+
+            const combat =
+                game.combat;
+
+
+            if (!combat) return null;
+
+
+            return (
+                combat.combatants?.find(
+                    combatant =>
+                        combatant.actor?.id === actor.id
+                )
+                ?? null
+            );
+
+        },
+
+
+        // --------------------------------------------------------
+        // IS ACTOR'S TURN?
+        // --------------------------------------------------------
+
+        isActorTurn(actor) {
+
+            if (!actor) return false;
+
+
+            const combat =
+                game.combat;
+
+
+            // Outside combat there is no turn restriction.
+            if (!combat) return true;
+
+
+            const combatant =
+                this.getCombatant(actor);
+
+
+            if (!combatant) return false;
+
+
+            return (
+                combat.combatant?.id ===
+                combatant.id
+            );
+
+        },
+
+
+        // --------------------------------------------------------
         // BG3 HUD SYNCHRONIZATION
-        // ========================================================
+        // --------------------------------------------------------
 
         syncHUD(actor, resource, isUsed) {
 
-            const hud = globalThis.ui?.BG3HUD_APP;
+            const hud =
+                globalThis.ui?.BG3HUD_APP;
+
 
             if (!hud) return;
 
 
-            const filters = hud.components?.filters;
+            const filters =
+                hud.components?.filters;
+
 
             if (!filters) return;
 
 
-            const filter = filters.filterButtons?.find(
-                button => button.data?.id === resource
-            );
+            const filter =
+                filters.filterButtons?.find(
+                    button =>
+                        button.data?.id === resource
+                );
+
 
             if (!filter) return;
 
@@ -85,115 +203,235 @@ if (!globalThis.actionEconomy) {
                 actor.name,
                 resource,
                 "→",
-                isUsed ? "USED" : "AVAILABLE"
+                isUsed
+                    ? "USED"
+                    : "AVAILABLE"
             );
-        }
-    };
+
+        },
 
 
-    // ============================================================
-    // ACTIVITY CONSUMPTION
-    // ============================================================
+        // --------------------------------------------------------
+        // RESET ACTOR
+        // --------------------------------------------------------
 
-    Hooks.on(
-        "dnd5e.preActivityConsumption",
-        (activity, usageConfig) => {
-
-            const actor = activity.actor;
+        reset(actor) {
 
             if (!actor) return;
 
 
-            // ----------------------------------------------------
-            // Must be in combat
-            // ----------------------------------------------------
-
-            const combat = game.combat;
-
-            if (!combat) return;
+            const state =
+                this.getState(actor);
 
 
-            // ----------------------------------------------------
-            // Find this actor's combatant
-            // ----------------------------------------------------
-
-            const combatant = combat.combatants.find(
-                c => c.actor?.id === actor.id
-            );
-
-            if (!combatant) return;
-
-
-            // ----------------------------------------------------
-            // Only enforce during this actor's turn
-            // ----------------------------------------------------
-
-            if (combat.combatant?.id !== combatant.id) return;
-
-
-            // ----------------------------------------------------
-            // Determine resource
-            // ----------------------------------------------------
-
-            const type = activity.activation?.type;
-
-            let resource = null;
-
-            if (type === "action") {
-
-                resource = "action";
-
-            }
-
-            else if (type === "bonus") {
-
-                resource = "bonus";
-
-            }
-
-            else if (type === "reaction") {
-
-                resource = "reaction";
-
-            }
-
-            else {
-
-                return;
-            }
+            state.action = false;
+            state.bonus = false;
+            state.reaction = false;
 
 
             console.log(
-                "%c[ACTION ECONOMY]",
-                "color: cyan; font-weight: bold;",
+                "%c[ACTION ECONOMY] RESET",
+                "color: yellow; font-weight: bold;",
+                actor.name
+            );
+
+
+            // Give the HUD time to render/update.
+            setTimeout(() => {
+
+                this.syncHUD(
+                    actor,
+                    "action",
+                    false
+                );
+
+                this.syncHUD(
+                    actor,
+                    "bonus",
+                    false
+                );
+
+                this.syncHUD(
+                    actor,
+                    "reaction",
+                    false
+                );
+
+            }, 100);
+
+        },
+
+
+        // --------------------------------------------------------
+        // MARK RESOURCE USED
+        // --------------------------------------------------------
+
+        use(actor, resource) {
+
+            if (!actor) return false;
+
+            if (!resource) return false;
+
+
+            const state =
+                this.getState(actor);
+
+
+            if (state[resource]) {
+
+                return false;
+
+            }
+
+
+            state[resource] = true;
+
+
+            console.log(
+                "%c[ACTION ECONOMY] USED",
+                "color: lime; font-weight: bold;",
                 actor.name,
-                activity.name,
-                "→",
                 resource
             );
 
 
+            setTimeout(() => {
+
+                this.syncHUD(
+                    actor,
+                    resource,
+                    true
+                );
+
+            }, 100);
+
+
+            return true;
+
+        },
+
+
+        // --------------------------------------------------------
+        // GET DISPLAY NAME
+        // --------------------------------------------------------
+
+        getDisplayName(resource) {
+
+            return {
+
+                action: "Action",
+                bonus: "Bonus Action",
+                reaction: "Reaction"
+
+            }[resource] ?? resource;
+
+        }
+
+    };
+
+
+    // ============================================================
+    // PRIMARY ACTION ECONOMY GATE
+    //
+    // Fires BEFORE the activity is configured.
+    // Returning false prevents the activity from being used.
+    // ============================================================
+
+    Hooks.on(
+        "dnd5e.preUseActivity",
+        (
+            activity,
+            usageConfig,
+            dialogConfig,
+            messageConfig
+        ) => {
+
+            const actor =
+                activity?.actor;
+
+
+            if (!actor) return;
+
+
+            const resource =
+                globalThis.actionEconomy.getResource(
+                    activity
+                );
+
+
+            // Activities without an Action Economy cost
+            // are not handled here.
+            if (!resource) return;
+
+
+            const combat =
+                game.combat;
+
+
+            // Outside combat:
+            // Do not enforce turn-based Action Economy.
+            if (!combat) return;
+
+
+            const combatant =
+                globalThis.actionEconomy.getCombatant(
+                    actor
+                );
+
+
+            // Actor is not part of the active combat.
+            // Do not interfere with their activity.
+            if (!combatant) return;
+
+
             // ----------------------------------------------------
-            // Get state
+            // HARD TURN LOCK
+            // ----------------------------------------------------
+
+            if (
+                combat.combatant?.id !==
+                combatant.id
+            ) {
+
+                ui.notifications.error(
+                    `${actor.name} cannot use ${globalThis.actionEconomy.getDisplayName(resource)} because it is not their turn.`
+                );
+
+
+                console.log(
+                    "%c[ACTION ECONOMY] BLOCKED OUT OF TURN",
+                    "color: red; font-weight: bold;",
+                    actor.name,
+                    activity.name,
+                    resource
+                );
+
+
+                return false;
+
+            }
+
+
+            // ----------------------------------------------------
+            // GET STATE
             // ----------------------------------------------------
 
             const state =
-                globalThis.actionEconomy.getState(actor);
+                globalThis.actionEconomy.getState(
+                    actor
+                );
 
 
             // ----------------------------------------------------
-            // Already used?
+            // RESOURCE ALREADY USED
             // ----------------------------------------------------
 
             if (state[resource]) {
 
-                const displayName = {
-
-                    action: "Action",
-                    bonus: "Bonus Action",
-                    reaction: "Reaction"
-
-                }[resource];
+                const displayName =
+                    globalThis.actionEconomy.getDisplayName(
+                        resource
+                    );
 
 
                 ui.notifications.error(
@@ -211,114 +449,143 @@ if (!globalThis.actionEconomy) {
 
 
                 return false;
+
             }
 
 
             // ----------------------------------------------------
-            // Consume resource immediately
+            // RESERVE RESOURCE
+            //
+            // We reserve it here, before the activity can continue,
+            // so a second rapid click cannot sneak another Action
+            // through before the first activity finishes.
             // ----------------------------------------------------
 
             state[resource] = true;
 
 
             console.log(
-                "%c[ACTION ECONOMY] USED",
-                "color: lime; font-weight: bold;",
+                "%c[ACTION ECONOMY] RESERVED",
+                "color: cyan; font-weight: bold;",
                 actor.name,
-                resource,
+                activity.name,
                 "→",
-                activity.name
+                resource
             );
-
-
-            // ----------------------------------------------------
-            // Update HUD after activity processing
-            // ----------------------------------------------------
-
-            setTimeout(() => {
-
-                if (!game.combat) return;
-
-                globalThis.actionEconomy.syncHUD(
-                    actor,
-                    resource,
-                    true
-                );
-
-            }, 100);
 
         }
     );
 
 
     // ============================================================
-    // RESET RESOURCES WHEN A NEW TURN STARTS
+    // CONFIRM SUCCESSFUL ACTIVITY
+    //
+    // The resource was already reserved by preUseActivity.
+    // Here we synchronize the HUD after the activity activates.
+    // ============================================================
+
+    Hooks.on(
+        "dnd5e.postUseActivity",
+        (
+            activity,
+            usageConfig,
+            results
+        ) => {
+
+            const actor =
+                activity?.actor;
+
+
+            if (!actor) return;
+
+
+            const resource =
+                globalThis.actionEconomy.getResource(
+                    activity
+                );
+
+
+            if (!resource) return;
+
+
+            const combat =
+                game.combat;
+
+
+            if (!combat) return;
+
+
+            const combatant =
+                globalThis.actionEconomy.getCombatant(
+                    actor
+                );
+
+
+            if (!combatant) return;
+
+
+            const state =
+                globalThis.actionEconomy.getState(
+                    actor
+                );
+
+
+            // Only sync if this resource was reserved.
+            if (!state[resource]) return;
+
+
+            console.log(
+                "%c[ACTION ECONOMY] CONFIRMED",
+                "color: lime; font-weight: bold;",
+                actor.name,
+                activity.name,
+                "→",
+                resource
+            );
+
+
+            globalThis.actionEconomy.syncHUD(
+                actor,
+                resource,
+                true
+            );
+
+        }
+    );
+
+
+    // ============================================================
+    // RESET ON NEW TURN
     // ============================================================
 
     Hooks.on(
         "updateCombat",
-        (combat, changed) => {
+        (
+            combat,
+            changed
+        ) => {
 
             if (!("turn" in changed)) return;
 
 
-            const combatant = combat.combatant;
+            const combatant =
+                combat.combatant;
+
 
             if (!combatant?.actor) return;
 
 
-            const actor = combatant.actor;
-
-
-            const state =
-                globalThis.actionEconomy.getState(actor);
-
-
-            // ----------------------------------------------------
-            // Reset resources
-            // ----------------------------------------------------
-
-            state.action = false;
-            state.bonus = false;
-            state.reaction = false;
-
-
-            // ----------------------------------------------------
-            // Restore HUD indicators
-            // ----------------------------------------------------
-
-            setTimeout(() => {
-
-                globalThis.actionEconomy.syncHUD(
-                    actor,
-                    "action",
-                    false
-                );
-
-                globalThis.actionEconomy.syncHUD(
-                    actor,
-                    "bonus",
-                    false
-                );
-
-                globalThis.actionEconomy.syncHUD(
-                    actor,
-                    "reaction",
-                    false
-                );
-
-            }, 100);
-
-
-            console.log(
-                "%c[ACTION ECONOMY] RESET",
-                "color: yellow; font-weight: bold;",
-                actor.name
+            globalThis.actionEconomy.reset(
+                combatant.actor
             );
 
         }
     );
 
+
+    // ============================================================
+    // CONTROLLER READY
+    // ============================================================
 
     console.log(
         "%c[ACTION ECONOMY] CONTROLLER CREATED",
