@@ -9,6 +9,9 @@
 //   REACTION
 //
 // Enforces one use per resource per turn.
+//
+// Also synchronizes manually-used BG3 HUD Action filters
+// back into the Action Economy controller.
 // ============================================================
 
 console.log(
@@ -212,6 +215,76 @@ if (globalThis.actionEconomy) {
 
 
         // --------------------------------------------------------
+        // SYNC MANUALLY-USED BG3 ACTION FILTER
+        //
+        // BG3 HUD tracks manually-used filters internally in:
+        //
+        //     filters._used
+        //
+        // A manually-used Action filter appears there as:
+        //
+        //     FilterButton.data.id === "action"
+        //
+        // This bridges that HUD state back into AEC.
+        // --------------------------------------------------------
+
+        syncManualActionFilter() {
+
+            const hud =
+                globalThis.ui?.BG3HUD_APP;
+
+
+            if (!hud) return;
+
+
+            const filters =
+                hud.components?.filters;
+
+
+            if (!filters) return;
+
+
+            const actionIsUsed =
+                filters._used?.some(
+                    filter =>
+                        filter?.data?.id === "action"
+                );
+
+
+            // Nothing to synchronize if Action is not
+            // currently marked as used in the HUD.
+            if (!actionIsUsed) return;
+
+
+            const actor =
+                filters.actor;
+
+
+            if (!actor) return;
+
+
+            const state =
+                this.getState(actor);
+
+
+            // Already synchronized.
+            if (state.action) return;
+
+
+            state.action = true;
+
+
+            console.log(
+                "%c[ACTION ECONOMY] MANUAL ACTION FILTER DETECTED",
+                "color: orange; font-weight: bold;",
+                actor.name,
+                "→ action"
+            );
+
+        },
+
+
+        // --------------------------------------------------------
         // RESET ACTOR
         // --------------------------------------------------------
 
@@ -328,6 +401,48 @@ if (globalThis.actionEconomy) {
         }
 
     };
+
+
+    // ============================================================
+    // BG3 HUD MANUAL ACTION FILTER WATCHER
+    //
+    // Watches for changes to the HUD filter classes.
+    //
+    // We do NOT rely solely on the DOM class. When a change occurs,
+    // syncManualActionFilter() checks the HUD's actual internal
+    // filters._used collection.
+    // ============================================================
+
+    function startManualActionFilterWatcher() {
+
+        if (globalThis.__aecManualActionWatcher) return;
+
+
+        globalThis.__aecManualActionWatcher =
+            new MutationObserver(() => {
+
+                globalThis.actionEconomy
+                    ?.syncManualActionFilter();
+
+            });
+
+
+        globalThis.__aecManualActionWatcher.observe(
+            document.body,
+            {
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["class"]
+            }
+        );
+
+
+        console.log(
+            "%c[ACTION ECONOMY] Manual Action filter watcher started.",
+            "color: orange; font-weight: bold;"
+        );
+
+    }
 
 
     // ============================================================
@@ -585,6 +700,25 @@ if (globalThis.actionEconomy) {
 
     // ============================================================
     // CONTROLLER READY
+    // ============================================================
+
+    Hooks.once(
+        "ready",
+        () => {
+
+            startManualActionFilterWatcher();
+
+            console.log(
+                "%c[ACTION ECONOMY] CONTROLLER READY",
+                "color: lime; font-size: 16px; font-weight: bold;"
+            );
+
+        }
+    );
+
+
+    // ============================================================
+    // CONTROLLER CREATED
     // ============================================================
 
     console.log(
