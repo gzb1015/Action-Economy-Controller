@@ -334,7 +334,7 @@
     // Do NOT remove the !important declarations.
     // ============================================================
 
-    function setBG3CombatVisibility() {
+   function setBG3CombatVisibility() {
 
     const hotbar =
         document.querySelector("#bg3-hotbar");
@@ -346,30 +346,19 @@
     /*
      * Firefox compatibility:
      *
-     * BG3 can create the hotbar with an inline
-     * "display: none" even when the HUD is marked
-     * as visible. Chrome does not exhibit this behavior.
+     * BG3 can leave an inline "display: none"
+     * on the hotbar even though the HUD is marked
+     * as visible.
      *
-     * When Firefox sees the HUD as visible, restore
-     * the layout that BG3 normally uses.
+     * Remove ONLY the inline display property.
+     * Do not force display:grid or width.
      */
     if (
         navigator.userAgent.includes("Firefox") &&
         hotbar &&
         hotbar.classList.contains("bg3-hud-visible")
     ) {
-
-        hotbar.style.setProperty(
-            "display",
-            "grid",
-            "important"
-        );
-
-        hotbar.style.setProperty(
-            "width",
-            "100%",
-            "important"
-        );
+        hotbar.style.removeProperty("display");
     }
 
 
