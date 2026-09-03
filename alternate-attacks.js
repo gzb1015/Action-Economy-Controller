@@ -59,11 +59,6 @@ if (globalThis.alternateAttacks) {
         grapplers: new Map(),    // grapplerActorId -> targetActorId
         grappledBy: new Map(),   // targetActorId -> grapplerActorId
 
-        // Tracks the pre-move position of a grappler's token so we
-        // can compute how far it moved and drag the target the
-        // same distance.
-        _pendingTokenMove: new Map(), // tokenId -> { x, y }
-
 
         // ========================================================
         // INIT
@@ -89,23 +84,12 @@ if (globalThis.alternateAttacks) {
                 this.handlePostUseActivity(activity, usageConfig, results)
             );
 
-            // Drag-along movement: capture the grappler's position
-            // just before it changes...
-            Hooks.on("preUpdateToken", (tokenDoc, changes) =>
-                this.handlePreUpdateToken(tokenDoc, changes)
-            );
-
-            // ...then move the target the same amount once the
-            // grappler's new position is committed.
-            Hooks.on("updateToken", (tokenDoc, changes) =>
-                this.handleUpdateToken(tokenDoc, changes)
-            );
-
-            // Double the grappler's own movement cost while
-            // dragging someone. Uses the same movement.passed
-            // data movement-tracker.js already relies on.
+            // Drag-along movement + double movement cost. moveToken
+            // hands us movement.origin / movement.destination
+            // directly, so there's no need to diff two separate
+            // update hooks ourselves.
             Hooks.on("moveToken", (tokenDoc, movement) =>
-                this.handleMoveTokenCost(tokenDoc, movement)
+                this.handleGrapplerMoved(tokenDoc, movement)
             );
 
             console.log(
@@ -732,58 +716,73 @@ if (globalThis.alternateAttacks) {
 
 
         // ========================================================
-        // DRAG-ALONG MOVEMENT
+        // DRAG-ALONG MOVEMENT + DOUBLE MOVEMENT COST
         //
-        // preUpdateToken fires before a token's x/y actually change,
-        // so it's the only reliable place to capture the "old"
-        // position. updateToken fires right after, once the new
-        // position is committed — that's where we move the target
-        // by the same delta.
+        // movement.origin / movement.destination on the moveToken
+        // hook give us the token's before/after position directly
+        // (per Foundry's TokenMovementOperation docs), so we don't
+        // need to diff separate update hooks ourselves.
+        //
+        // KNOWN LIMITATION: movement-tracker's pre-move path limiter
+        // only knows about the base (non-doubled) cost when deciding
+        // how far a move is allowed to go, so a grappler who spends
+        // their *entire* remaining movement in one move while
+        // dragging can end up "overdrawn" (clamped to 0) rather than
+        // being stopped early. In practice this just means they
+        // can't move again that turn — nothing breaks — but it's not
+        // a perfectly accurate cap.
+        //
+        // ALSO NOTE: because the target's token position is changed
+        // via a normal update, Foundry may treat it as its own
+        // "movement" and movement-tracker.js may deduct a small
+        // amount from the *target's* movement pool too, even though
+        // they didn't choose to move. If that turns out to be
+        // noticeable in play, let me know and I'll add a way for
+        // this drag update to be recognized and skipped there.
         // ========================================================
 
-        handlePreUpdateToken(tokenDoc, changes) {
-
-            if (!("x" in changes) && !("y" in changes)) return;
+        handleGrapplerMoved(tokenDoc, movement) {
 
             const actor = tokenDoc.actor;
             if (!actor) return;
 
             if (!this.grapplers.has(actor.id)) return;
 
-            this._pendingTokenMove.set(tokenDoc.id, { x: tokenDoc.x, y: tokenDoc.y });
+            // ---- double the grappler's own movement cost ----
 
-        },
+            const cost = Number(movement?.passed?.cost ?? 0);
+            const distance = Number(movement?.passed?.distance ?? 0);
 
+            if (cost > 0) {
 
-        handleUpdateToken(tokenDoc, changes) {
+                globalThis.movementTracker?.recordMovement?.(actor, cost, distance);
 
-            if (!("x" in changes) && !("y" in changes)) return;
+                console.log(
+                    "%c[ALTERNATE ATTACKS] DOUBLED MOVEMENT COST (dragging grapple target)",
+                    "color: orange; font-weight: bold;",
+                    actor.name, `+${cost} ft`
+                );
 
-            const actor = tokenDoc.actor;
-            if (!actor) return;
-
-            const targetActorId = this.grapplers.get(actor.id);
-
-            if (!targetActorId) {
-                this._pendingTokenMove.delete(tokenDoc.id);
-                return;
             }
 
-            const oldPos = this._pendingTokenMove.get(tokenDoc.id);
-            this._pendingTokenMove.delete(tokenDoc.id);
+            // ---- drag the target along ----
 
-            if (!oldPos) return;
+            const origin = movement?.origin;
+            const destination = movement?.destination;
 
-            const deltaX = tokenDoc.x - oldPos.x;
-            const deltaY = tokenDoc.y - oldPos.y;
+            if (!origin || !destination) return;
+
+            const deltaX = Number(destination.x ?? 0) - Number(origin.x ?? 0);
+            const deltaY = Number(destination.y ?? 0) - Number(origin.y ?? 0);
 
             if (deltaX === 0 && deltaY === 0) return;
 
+            const targetActorId = this.grapplers.get(actor.id);
             const targetActor = game.actors?.get(targetActorId);
+
             if (!targetActor) return;
 
-            const targetTokens = targetActor.getActiveTokens(false, true);
-            const targetToken = targetTokens[0];
+            const targetToken = targetActor.getActiveTokens(false, true)[0];
 
             if (!targetToken) {
                 console.warn(
@@ -803,46 +802,6 @@ if (globalThis.alternateAttacks) {
                 "%c[ALTERNATE ATTACKS] DRAGGED TARGET",
                 "color: gold; font-weight: bold;",
                 { grappler: actor.name, target: targetActor.name, deltaX, deltaY }
-            );
-
-        },
-
-
-        // ========================================================
-        // DOUBLE MOVEMENT COST WHILE DRAGGING
-        //
-        // movement-tracker.js already records the grappler's normal
-        // movement cost from this same "moveToken" event. We simply
-        // record it a second time to double the total deduction.
-        //
-        // KNOWN LIMITATION: movement-tracker's pre-move path limiter
-        // only knows about the base (non-doubled) cost when deciding
-        // how far a move is allowed to go, so a grappler who spends
-        // their *entire* remaining movement in one move while
-        // dragging can end up "overdrawn" (clamped to 0) rather than
-        // being stopped early. In practice this just means they
-        // can't move again that turn — nothing breaks — but it's not
-        // a perfectly accurate cap.
-        // ========================================================
-
-        handleMoveTokenCost(tokenDoc, movement) {
-
-            const actor = tokenDoc.actor;
-            if (!actor) return;
-
-            if (!this.grapplers.has(actor.id)) return;
-
-            const cost = Number(movement?.passed?.cost ?? 0);
-            const distance = Number(movement?.passed?.distance ?? 0);
-
-            if (cost <= 0) return;
-
-            globalThis.movementTracker?.recordMovement?.(actor, cost, distance);
-
-            console.log(
-                "%c[ALTERNATE ATTACKS] DOUBLED MOVEMENT COST (dragging grapple target)",
-                "color: orange; font-weight: bold;",
-                actor.name, `+${cost} ft`
             );
 
         }
