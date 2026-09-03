@@ -172,36 +172,58 @@
 
     function setTrackerCombatVisibility() {
 
-        const ui =
-            document.getElementById(UI_ID);
+    const ui =
+        document.getElementById(UI_ID);
 
-        if (!ui) return;
-
-
-        const inCombat =
-            !!game.combat &&
-            game.combat.started === true;
+    if (!ui) return;
 
 
-        if (!inCombat) {
-
-            ui.style.display =
-                "none";
-
-            return;
-        }
+    const inCombat =
+        !!game.combat &&
+        game.combat.started === true;
 
 
-        /*
-         * The wheel stays on BODY, so it cannot be destroyed
-         * when BG3 rebuilds its filter.
-         */
+    const selectedToken =
+        canvas.tokens?.controlled?.[0];
+
+
+    if (!inCombat || !selectedToken?.actor) {
+
         ui.style.display =
-            "flex";
+            "none";
 
+        return;
 
-        schedulePositionUpdate();
     }
+
+
+    const state =
+        globalThis.movementTracker?.getState(
+            selectedToken.actor
+        );
+
+    if (!state) {
+
+        ui.style.display =
+            "none";
+
+        return;
+
+    }
+
+
+    updateMovement(
+        state.spent,
+        state.maximum
+    );
+
+
+    ui.style.display =
+        "flex";
+
+
+    schedulePositionUpdate();
+}
 
 
     // ============================================================
@@ -482,7 +504,84 @@
         );
     }
 
+// ============================================================
+// TOKEN SELECTION
+// ============================================================
 
+function registerTokenSelectionHook() {
+
+    Hooks.on(
+        "controlToken",
+        (token, controlled) => {
+
+            const ui =
+                document.getElementById(UI_ID);
+
+            if (!ui) return;
+
+
+            // ----------------------------------------------------
+            // TOKEN DESELECTED
+            // ----------------------------------------------------
+
+            if (!controlled) {
+
+                ui.style.display = "none";
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // TOKEN SELECTED
+            // ----------------------------------------------------
+
+            const actor =
+                token?.actor;
+
+            if (!actor) {
+
+                ui.style.display = "none";
+
+                return;
+
+            }
+
+
+            const state =
+                globalThis.movementTracker?.getState(actor);
+
+            if (!state) {
+
+                ui.style.display = "none";
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // UPDATE TRACKER
+            // ----------------------------------------------------
+
+            updateMovement(
+                state.spent,
+                state.maximum
+            );
+
+
+            ui.style.display =
+                "flex";
+
+
+            schedulePositionUpdate();
+
+        }
+    );
+
+}
+    
     // ============================================================
     // COMBAT HOOKS
     // ============================================================
@@ -612,7 +711,7 @@
 
     user-select: none;
 
-    z-index: 999999;
+    z-index: 100;
 
     font-family:
         Signika,
@@ -827,7 +926,8 @@
          */
         registerPositionListeners();
 
-
+        registerTokenSelectionHook();
+        
         /*
          * Preserve combat functionality.
          */
