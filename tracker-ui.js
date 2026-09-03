@@ -336,64 +336,78 @@
 
     function setBG3CombatVisibility() {
 
-        const filter =
-            document.querySelector(
-                ".bg3-filter-container"
-            );
+    const hotbar =
+        document.querySelector("#bg3-hotbar");
+
+    const filter =
+        document.querySelector(".bg3-filter-container");
 
 
-        if (!filter) {
-            return;
-        }
+    /*
+     * Firefox compatibility:
+     *
+     * BG3 can create the hotbar with an inline
+     * "display: none" even when the HUD is marked
+     * as visible. Chrome does not exhibit this behavior.
+     *
+     * When Firefox sees the HUD as visible, restore
+     * the layout that BG3 normally uses.
+     */
+    if (
+        navigator.userAgent.includes("Firefox") &&
+        hotbar &&
+        hotbar.classList.contains("bg3-hud-visible")
+    ) {
 
+        hotbar.style.setProperty(
+            "display",
+            "grid",
+            "important"
+        );
 
-        const inCombat =
-            !!game.combat &&
-            game.combat.started === true;
-
-
-        if (inCombat) {
-
-            filter.style.setProperty(
-                "opacity",
-                "1",
-                "important"
-            );
-
-
-            filter.style.setProperty(
-                "visibility",
-                "visible",
-                "important"
-            );
-
-
-            filter.style.setProperty(
-                "display",
-                "flex",
-                "important"
-            );
-
-        }
-
-
-        else {
-
-            filter.style.removeProperty(
-                "opacity"
-            );
-
-
-            filter.style.removeProperty(
-                "visibility"
-            );
-
-
-            filter.style.removeProperty(
-                "display"
-            );
-        }
+        hotbar.style.setProperty(
+            "width",
+            "100%",
+            "important"
+        );
     }
+
+
+    if (!filter) return;
+
+
+    const inCombat =
+        !!game.combat &&
+        game.combat.started === true;
+
+
+    if (inCombat) {
+
+        filter.style.setProperty(
+            "opacity",
+            "1",
+            "important"
+        );
+
+        filter.style.setProperty(
+            "visibility",
+            "visible",
+            "important"
+        );
+
+        filter.style.setProperty(
+            "display",
+            "flex",
+            "important"
+        );
+
+    } else {
+
+        filter.style.removeProperty("opacity");
+        filter.style.removeProperty("visibility");
+        filter.style.removeProperty("display");
+    }
+}
 
 
     // ============================================================
