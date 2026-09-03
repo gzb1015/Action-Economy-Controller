@@ -10,9 +10,12 @@
 //   • Grapple target size restriction
 //   • Athletics vs Athletics/Acrobatics contest
 //   • Grappled condition
+//   • Grapple relationship tracking
+//   • Contextual Escape Grapple prompt
+//   • Escape Grapple Athletics/Acrobatics contest
 //
-// Action Economy Controller remains responsible for consuming
-// the Action.
+// Action Economy Controller remains responsible for normal
+// Action/Bonus Action/Reaction enforcement.
 //
 // ============================================================
 
@@ -37,6 +40,24 @@ if (globalThis.alternateAttacks) {
     globalThis.alternateAttacks = {
 
         // ========================================================
+        // GRAPPLE RELATIONSHIPS
+        //
+        // grapplers:
+        //     grapplerActorId -> targetActorId
+        //
+        // grappledBy:
+        //     targetActorId -> grapplerActorId
+        //
+        // These are deliberately separate so that two creatures
+        // can grapple each other at the same time.
+        // ========================================================
+
+        grapplers: new Map(),
+
+        grappledBy: new Map(),
+
+
+        // ========================================================
         // INITIALIZATION
         // ========================================================
 
@@ -59,6 +80,10 @@ if (globalThis.alternateAttacks) {
                 true;
 
 
+            // ----------------------------------------------------
+            // GRAPPLE POST USE
+            // ----------------------------------------------------
+
             Hooks.on(
                 "dnd5e.postUseActivity",
                 (
@@ -77,9 +102,729 @@ if (globalThis.alternateAttacks) {
             );
 
 
+            // ----------------------------------------------------
+            // CONTEXTUAL ESCAPE PROMPT
+            // ----------------------------------------------------
+
+            Hooks.on(
+                "dnd5e.preUseActivity",
+                (
+                    activity,
+                    usageConfig
+                ) => {
+
+                    return this.handlePreUseActivity(
+                        activity,
+                        usageConfig
+                    );
+
+                }
+            );
+
+
             console.log(
-                "%c[ALTERNATE ATTACKS] Grapple handler installed.",
+                "%c[ALTERNATE ATTACKS] Grapple + Escape Grapple handlers installed.",
                 "color: lime; font-weight: bold;"
+            );
+
+        },
+
+
+        // ========================================================
+        // PRE-USE ACTIVITY
+        //
+        // This catches an Action before it is consumed.
+        //
+        // If the actor is Grappled, we temporarily stop the
+        // original Action and ask whether they want to escape.
+        // ========================================================
+
+        handlePreUseActivity(
+            activity,
+            usageConfig
+        ) {
+
+            if (!activity) {
+                return true;
+            }
+
+
+            const actor =
+                activity.actor;
+
+
+            if (!actor) {
+                return true;
+            }
+
+
+            // ----------------------------------------------------
+            // Ignore our own internally re-fired Action.
+            //
+            // When the player chooses "Use Action", we need to
+            // allow the original activity through without opening
+            // the escape prompt again.
+            // ----------------------------------------------------
+
+            if (
+                usageConfig?.__aecSkipGrappleEscape
+            ) {
+
+                return true;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Only Actions can be used to escape a grapple.
+            //
+            // Bonus Actions and Reactions should proceed normally.
+            // ----------------------------------------------------
+
+            const resource =
+                globalThis.actionEconomy?.getResource?.(
+                    activity
+                );
+
+
+            if (
+                resource !== "action"
+            ) {
+
+                return true;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Is this actor currently being grappled?
+            // ----------------------------------------------------
+
+            const grappler =
+                this.getGrappler(
+                    actor
+                );
+
+
+            if (!grappler) {
+
+                return true;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Do not interfere if the Action Economy system has
+            // already consumed the Action.
+            // ----------------------------------------------------
+
+            const actionState =
+                globalThis.actionEconomy?.getState?.(
+                    actor
+                );
+
+
+            if (
+                actionState?.action
+            ) {
+
+                return true;
+
+            }
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] ACTOR IS GRAPPLED — INTERCEPTING ACTION",
+                "color: orange; font-weight: bold;",
+                actor.name,
+                "grappler:",
+                grappler.name
+            );
+
+
+            // ----------------------------------------------------
+            // Cancel the original activity for now.
+            //
+            // We will either:
+            //
+            //   • consume the Action and perform Escape Grapple
+            //   • re-fire the original Action
+            //   • do nothing
+            //
+            // ----------------------------------------------------
+
+            setTimeout(
+                () => {
+
+                    this.showEscapePrompt(
+                        actor,
+                        grappler,
+                        activity,
+                        usageConfig
+                    );
+
+                },
+                0
+            );
+
+
+            return false;
+
+        },
+
+
+        // ========================================================
+        // SHOW ESCAPE PROMPT
+        // ========================================================
+
+        async showEscapePrompt(
+            actor,
+            grappler,
+            activity,
+            usageConfig
+        ) {
+
+            if (
+                !actor ||
+                !grappler ||
+                !activity
+            ) {
+
+                return;
+
+            }
+
+
+            const shouldEscape =
+                await this.chooseEscapeAction(
+                    actor,
+                    grappler
+                );
+
+
+            // ----------------------------------------------------
+            // CANCEL
+            // ----------------------------------------------------
+
+            if (
+                shouldEscape === null
+            ) {
+
+                console.log(
+                    "[ALTERNATE ATTACKS] Escape prompt cancelled."
+                );
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // USE ACTION NORMALLY
+            // ----------------------------------------------------
+
+            if (
+                shouldEscape === false
+            ) {
+
+                console.log(
+                    "%c[ALTERNATE ATTACKS] Player chose to use normal Action.",
+                    "color: cyan; font-weight: bold;",
+                    actor.name,
+                    activity.name
+                );
+
+
+                // ------------------------------------------------
+                // Re-fire the original activity.
+                //
+                // The flag prevents this second execution from
+                // opening the Escape Grapple prompt again.
+                // ------------------------------------------------
+
+                try {
+
+                    await activity.use({
+                        ...usageConfig,
+                        __aecSkipGrappleEscape:
+                            true
+                    });
+
+                } catch (error) {
+
+                    console.error(
+                        "[ALTERNATE ATTACKS] Failed to re-fire original Action:",
+                        error
+                    );
+
+                }
+
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // ESCAPE GRAPPLE
+            // ----------------------------------------------------
+
+            if (
+                shouldEscape === true
+            ) {
+
+                await this.handleEscapeGrapple(
+                    actor,
+                    grappler
+                );
+
+            }
+
+        },
+
+
+        // ========================================================
+        // ESCAPE PROMPT DIALOG
+        // ========================================================
+
+        async chooseEscapeAction(
+            actor,
+            grappler
+        ) {
+
+            return new Promise(
+                resolve => {
+
+                    let resolved =
+                        false;
+
+
+                    const finish =
+                        value => {
+
+                            if (resolved) {
+                                return;
+                            }
+
+
+                            resolved =
+                                true;
+
+
+                            resolve(
+                                value
+                            );
+
+                        };
+
+
+                    new Dialog({
+
+                        title:
+                            "Grappled",
+
+                        content:
+                            `
+                                <p>
+                                    <strong>${actor.name}</strong>
+                                    is currently grappled by
+                                    <strong>${grappler.name}</strong>.
+                                </p>
+
+                                <p>
+                                    Would you like to attempt to escape
+                                    the grapple instead of using your Action?
+                                </p>
+                            `,
+
+                        buttons: {
+
+                            escape: {
+
+                                label:
+                                    "Escape Grapple",
+
+                                callback:
+                                    () => finish(
+                                        true
+                                    )
+
+                            },
+
+                            action: {
+
+                                label:
+                                    "Use Action",
+
+                                callback:
+                                    () => finish(
+                                        false
+                                    )
+
+                            }
+
+                        },
+
+                        default:
+                            "action",
+
+                        close:
+                            () => finish(
+                                null
+                            )
+
+                    }).render(true);
+
+                }
+            );
+
+        },
+
+
+        // ========================================================
+        // HANDLE ESCAPE GRAPPLE
+        // ========================================================
+
+        async handleEscapeGrapple(
+            actor,
+            grappler
+        ) {
+
+            if (
+                !actor ||
+                !grappler
+            ) {
+
+                return;
+
+            }
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] ESCAPE GRAPPLE ATTEMPT",
+                "color: gold; font-weight: bold;",
+                actor.name,
+                "→",
+                grappler.name
+            );
+
+
+            // ----------------------------------------------------
+            // Confirm the Action is still available.
+            // ----------------------------------------------------
+
+            const state =
+                globalThis.actionEconomy?.getState?.(
+                    actor
+                );
+
+
+            if (
+                state?.action
+            ) {
+
+                ui.notifications.warn(
+                    `${actor.name} has already used their Action.`
+                );
+
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Consume Action through Action Economy Controller.
+            // ----------------------------------------------------
+
+            const actionUsed =
+                globalThis.actionEconomy?.use?.(
+                    actor,
+                    "action"
+                );
+
+
+            if (
+                actionUsed === false
+            ) {
+
+                ui.notifications.warn(
+                    `${actor.name} cannot use an Action right now.`
+                );
+
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Choose Athletics or Acrobatics.
+            // ----------------------------------------------------
+
+            const escapeSkill =
+                await this.chooseEscapeSkill(
+                    actor
+                );
+
+
+            if (!escapeSkill) {
+
+                console.log(
+                    "[ALTERNATE ATTACKS] Escape skill selection cancelled."
+                );
+
+
+                // ------------------------------------------------
+                // The Action has already been consumed.
+                //
+                // This is intentional: the player chose Escape
+                // Grapple and then cancelled the skill selection.
+                // ------------------------------------------------
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Roll escape check.
+            // ----------------------------------------------------
+
+            const escapeRoll =
+                await this.rollSkill(
+                    actor,
+                    escapeSkill,
+                    `Escape Grapple — ${escapeSkill === "ath" ? "Athletics" : "Acrobatics"}`
+                );
+
+
+            if (!escapeRoll) {
+
+                console.warn(
+                    "[ALTERNATE ATTACKS] Escape roll failed."
+                );
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Grappler Athletics.
+            // ----------------------------------------------------
+
+            const grapplerRoll =
+                await this.rollSkill(
+                    grappler,
+                    "ath",
+                    "Escape Grapple — Grappler Athletics"
+                );
+
+
+            if (!grapplerRoll) {
+
+                console.warn(
+                    "[ALTERNATE ATTACKS] Grappler Athletics roll failed."
+                );
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // COMPARE RESULTS
+            //
+            // Escape succeeds if the escaping creature's result
+            // exceeds the grappler's Athletics result.
+            //
+            // A tie fails.
+            // ----------------------------------------------------
+
+            const escapeTotal =
+                Number(
+                    escapeRoll.total ?? 0
+                );
+
+
+            const grapplerTotal =
+                Number(
+                    grapplerRoll.total ?? 0
+                );
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] ESCAPE GRAPPLE CONTEST",
+                "color: gold; font-weight: bold;",
+                {
+                    escaping:
+                        actor.name,
+
+                    escapeSkill:
+                        escapeSkill,
+
+                    escapeTotal:
+                        escapeTotal,
+
+                    grappler:
+                        grappler.name,
+
+                    grapplerTotal:
+                        grapplerTotal
+                }
+            );
+
+
+            // ----------------------------------------------------
+            // SUCCESS
+            // ----------------------------------------------------
+
+            if (
+                escapeTotal >
+                grapplerTotal
+            ) {
+
+                await this.removeGrappled(
+                    actor
+                );
+
+
+                this.removeGrappleRelationship(
+                    grappler,
+                    actor
+                );
+
+
+                ui.notifications.info(
+                    `${actor.name} escaped ${grappler.name}'s grapple.`
+                );
+
+
+                console.log(
+                    "%c[ALTERNATE ATTACKS] ESCAPE GRAPPLE SUCCESS",
+                    "color: lime; font-weight: bold;",
+                    actor.name,
+                    "escaped from",
+                    grappler.name
+                );
+
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // FAILURE / TIE
+            // ----------------------------------------------------
+
+            ui.notifications.info(
+                `${actor.name} failed to escape ${grappler.name}'s grapple.`
+            );
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] ESCAPE GRAPPLE FAILED",
+                "color: red; font-weight: bold;",
+                actor.name,
+                "vs",
+                grappler.name
+            );
+
+        },
+
+
+        // ========================================================
+        // CHOOSE ESCAPE SKILL
+        // ========================================================
+
+        async chooseEscapeSkill(
+            actor
+        ) {
+
+            return new Promise(
+                resolve => {
+
+                    let resolved =
+                        false;
+
+
+                    const finish =
+                        value => {
+
+                            if (resolved) {
+                                return;
+                            }
+
+
+                            resolved =
+                                true;
+
+
+                            resolve(
+                                value
+                            );
+
+                        };
+
+
+                    new Dialog({
+
+                        title:
+                            "Escape Grapple",
+
+                        content:
+                            `
+                                <p>
+                                    <strong>${actor.name}</strong>
+                                    must choose a skill to escape the grapple.
+                                </p>
+
+                                <p>
+                                    Choose Athletics or Acrobatics.
+                                </p>
+                            `,
+
+                        buttons: {
+
+                            athletics: {
+
+                                label:
+                                    "Athletics",
+
+                                callback:
+                                    () => finish(
+                                        "ath"
+                                    )
+
+                            },
+
+                            acrobatics: {
+
+                                label:
+                                    "Acrobatics",
+
+                                callback:
+                                    () => finish(
+                                        "acr"
+                                    )
+
+                            }
+
+                        },
+
+                        default:
+                            "athletics",
+
+                        close:
+                            () => finish(
+                                null
+                            )
+
+                    }).render(true);
+
+                }
             );
 
         },
@@ -89,9 +834,13 @@ if (globalThis.alternateAttacks) {
         // IDENTIFY GRAPPLE
         // ========================================================
 
-        isGrappleActivity(activity) {
+        isGrappleActivity(
+            activity
+        ) {
 
-            if (!activity) return false;
+            if (!activity) {
+                return false;
+            }
 
 
             const activityName =
@@ -347,6 +1096,16 @@ if (globalThis.alternateAttacks) {
                 );
 
 
+                // ------------------------------------------------
+                // Record the relationship.
+                // ------------------------------------------------
+
+                this.addGrappleRelationship(
+                    actor,
+                    targetActor
+                );
+
+
                 ui.notifications.info(
                     `${actor.name} successfully grappled ${target.name}.`
                 );
@@ -368,9 +1127,6 @@ if (globalThis.alternateAttacks) {
 
             // ----------------------------------------------------
             // FAILURE / TIE
-            //
-            // Grapple rules require the attacker to exceed the
-            // defender's result. A tie therefore fails.
             // ----------------------------------------------------
 
             ui.notifications.info(
@@ -540,13 +1296,17 @@ if (globalThis.alternateAttacks) {
         // GET SIZE INDEX
         // ========================================================
 
-        getSizeIndex(actor) {
+        getSizeIndex(
+            actor
+        ) {
 
             const size =
                 actor?.system?.traits?.size;
 
 
-            if (!size) return null;
+            if (!size) {
+                return null;
+            }
 
 
             const sizes = [
@@ -581,6 +1341,189 @@ if (globalThis.alternateAttacks) {
 
 
         // ========================================================
+        // ADD GRAPPLE RELATIONSHIP
+        // ========================================================
+
+        addGrappleRelationship(
+            grappler,
+            target
+        ) {
+
+            if (
+                !grappler ||
+                !target
+            ) {
+
+                return;
+
+            }
+
+
+            this.grapplers.set(
+                grappler.id,
+                target.id
+            );
+
+
+            this.grappledBy.set(
+                target.id,
+                grappler.id
+            );
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] GRAPPLE RELATIONSHIP CREATED",
+                "color: lime; font-weight: bold;",
+                {
+                    grappler:
+                        grappler.name,
+
+                    target:
+                        target.name
+                }
+            );
+
+        },
+
+
+        // ========================================================
+        // GET GRAPPLER
+        //
+        // Returns the actor currently grappling this actor.
+        // ========================================================
+
+        getGrappler(
+            actor
+        ) {
+
+            if (!actor) {
+                return null;
+            }
+
+
+            const grapplerId =
+                this.grappledBy.get(
+                    actor.id
+                );
+
+
+            if (!grapplerId) {
+                return null;
+            }
+
+
+            return (
+                game.actors?.get(
+                    grapplerId
+                ) ??
+                null
+            );
+
+        },
+
+
+        // ========================================================
+        // GET GRAPPLED TARGET
+        //
+        // Returns the creature this actor is grappling.
+        // ========================================================
+
+        getGrappledTarget(
+            actor
+        ) {
+
+            if (!actor) {
+                return null;
+            }
+
+
+            const targetId =
+                this.grapplers.get(
+                    actor.id
+                );
+
+
+            if (!targetId) {
+                return null;
+            }
+
+
+            return (
+                game.actors?.get(
+                    targetId
+                ) ??
+                null
+            );
+
+        },
+
+
+        // ========================================================
+        // REMOVE GRAPPLE RELATIONSHIP
+        // ========================================================
+
+        removeGrappleRelationship(
+            grappler,
+            target
+        ) {
+
+            if (
+                !grappler ||
+                !target
+            ) {
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Only remove the relationship if it still points to
+            // this exact pair.
+            // ----------------------------------------------------
+
+            if (
+                this.grapplers.get(
+                    grappler.id
+                ) === target.id
+            ) {
+
+                this.grapplers.delete(
+                    grappler.id
+                );
+
+            }
+
+
+            if (
+                this.grappledBy.get(
+                    target.id
+                ) === grappler.id
+            ) {
+
+                this.grappledBy.delete(
+                    target.id
+                );
+
+            }
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] GRAPPLE RELATIONSHIP REMOVED",
+                "color: cyan; font-weight: bold;",
+                {
+                    grappler:
+                        grappler.name,
+
+                    target:
+                        target.name
+                }
+            );
+
+        },
+
+
+        // ========================================================
         // ROLL SKILL
         //
         // IMPORTANT:
@@ -593,14 +1536,7 @@ if (globalThis.alternateAttacks) {
         // expects the newer configuration structure.
         //
         // Instead, we construct a normal d20 roll from the
-        // actor's skill bonus.
-        //
-        // This preserves:
-        //
-        //   • skill proficiency
-        //   • ability modifier
-        //   • skill bonus
-        //   • normal Foundry Roll
+        // actor's calculated skill bonus.
         //
         // ========================================================
 
@@ -649,23 +1585,11 @@ if (globalThis.alternateAttacks) {
             );
 
 
-            // ----------------------------------------------------
-            // Construct the roll.
-            //
-            // We use the skill's calculated total rather than
-            // rebuilding proficiency/ability calculations
-            // ourselves.
-            // ----------------------------------------------------
-
             const roll =
                 await new Roll(
                     `1d20 + ${bonus}`
                 ).evaluate();
 
-
-            // ----------------------------------------------------
-            // Create normal Foundry chat message.
-            // ----------------------------------------------------
 
             await roll.toMessage({
 
@@ -698,7 +1622,9 @@ if (globalThis.alternateAttacks) {
         // CHOOSE TARGET DEFENSE
         // ========================================================
 
-        async chooseDefenseSkill(actor) {
+        async chooseDefenseSkill(
+            actor
+        ) {
 
             return new Promise(
                 resolve => {
@@ -710,11 +1636,18 @@ if (globalThis.alternateAttacks) {
                     const finish =
                         value => {
 
-                            if (resolved) return;
+                            if (resolved) {
+                                return;
+                            }
 
-                            resolved = true;
 
-                            resolve(value);
+                            resolved =
+                                true;
+
+
+                            resolve(
+                                value
+                            );
 
                         };
 
@@ -784,14 +1717,14 @@ if (globalThis.alternateAttacks) {
         // APPLY GRAPPLED CONDITION
         // ========================================================
 
-        async applyGrappled(actor) {
+        async applyGrappled(
+            actor
+        ) {
 
-            if (!actor) return;
+            if (!actor) {
+                return;
+            }
 
-
-            // ----------------------------------------------------
-            // Standard D&D 5e condition ID.
-            // ----------------------------------------------------
 
             const conditionId =
                 "grappled";
@@ -906,6 +1839,141 @@ if (globalThis.alternateAttacks) {
 
             console.log(
                 "%c[ALTERNATE ATTACKS] GRAPPLED CONDITION APPLIED VIA FALLBACK",
+                "color: lime; font-weight: bold;",
+                actor.name
+            );
+
+        },
+
+
+        // ========================================================
+        // REMOVE GRAPPLED CONDITION
+        // ========================================================
+
+        async removeGrappled(
+            actor
+        ) {
+
+            if (!actor) {
+                return;
+            }
+
+
+            const conditionId =
+                "grappled";
+
+
+            // ----------------------------------------------------
+            // Preferred Foundry/D&D 5e method.
+            // ----------------------------------------------------
+
+            if (
+                typeof actor.toggleStatusEffect ===
+                "function"
+            ) {
+
+                const isGrappled =
+                    actor.effects?.some(
+                        effect => {
+
+                            if (
+                                effect.statuses?.has(
+                                    conditionId
+                                )
+                            ) {
+
+                                return true;
+
+                            }
+
+
+                            if (
+                                effect.flags?.core?.statusId ===
+                                conditionId
+                            ) {
+
+                                return true;
+
+                            }
+
+
+                            return false;
+
+                        }
+                    );
+
+
+                if (isGrappled) {
+
+                    await actor.toggleStatusEffect(
+                        conditionId,
+                        {
+                            active:
+                                false
+                        }
+                    );
+
+                }
+
+
+                console.log(
+                    "%c[ALTERNATE ATTACKS] GRAPPLED CONDITION REMOVED",
+                    "color: lime; font-weight: bold;",
+                    actor.name
+                );
+
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Fallback.
+            // ----------------------------------------------------
+
+            const grappleEffects =
+                actor.effects?.filter(
+                    effect => {
+
+                        if (
+                            effect.statuses?.has(
+                                conditionId
+                            )
+                        ) {
+
+                            return true;
+
+                        }
+
+
+                        if (
+                            effect.flags?.core?.statusId ===
+                            conditionId
+                        ) {
+
+                            return true;
+
+                        }
+
+
+                        return false;
+
+                    }
+                ) ?? [];
+
+
+            for (
+                const effect of grappleEffects
+            ) {
+
+                await effect.delete();
+
+            }
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] GRAPPLED CONDITION REMOVED VIA FALLBACK",
                 "color: lime; font-weight: bold;",
                 actor.name
             );
