@@ -1,3 +1,9 @@
+// ============================================================
+// TRACKER UI
+// Action Economy / Movement Display
+// Foundry VTT v13 / D&D 5e 5.3.3
+// ============================================================
+
 (() => {
     "use strict";
 
@@ -7,9 +13,9 @@
     let positionFrame = null;
 
 
-    /* ============================================================
-     * CREATE TRACKER UI
-     * ============================================================ */
+    // ============================================================
+    // CREATE UI
+    // ============================================================
 
     function createTrackerUI() {
 
@@ -22,182 +28,59 @@
         ui =
             document.createElement("div");
 
-        ui.id = UI_ID;
+        ui.id =
+            UI_ID;
+
 
         ui.innerHTML = `
-            <div class="aec-tracker-wheel">
+            <div
+                class="aec-stamina-wheel"
+                aria-label="Movement remaining"
+            >
+                <div class="aec-stamina-ring">
 
-                <div class="aec-tracker-ring"></div>
+                    <div class="aec-stamina-center">
 
-                <div class="aec-tracker-text">
+                        <span id="aec-movement-value">
+                            30
+                        </span>
 
-                    <div class="aec-tracker-feet">
-                        0
-                    </div>
-
-                    <div class="aec-tracker-label">
-                        ft
                     </div>
 
                 </div>
+            </div>
 
+            <div id="aec-warning">
+                NO MORE MOVEMENT
             </div>
         `;
 
 
         /*
-         * IMPORTANT:
+         * Keep the tracker on BODY.
          *
-         * The tracker is attached directly to BODY rather than
-         * inside the BG3 HUD. BG3 rebuilds its HUD/filter
-         * containers, which would otherwise destroy the tracker.
+         * BG3 rebuilds its filter container, so putting the
+         * tracker inside the filter would cause it to disappear.
          */
 
         document.body.appendChild(ui);
+
+
+        injectStyles();
+
 
         return ui;
     }
 
 
-    /* ============================================================
-     * CREATE STYLES
-     * ============================================================ */
-
-    function createStyles() {
-
-        if (document.getElementById(STYLE_ID))
-            return;
-
-
-        const style =
-            document.createElement("style");
-
-        style.id = STYLE_ID;
-
-
-        style.textContent = `
-
-            #${UI_ID} {
-
-                position: fixed;
-
-                width: 50px;
-                height: 50px;
-
-                transform:
-                    translateX(-50%);
-
-                display: none;
-
-                align-items: center;
-                justify-content: center;
-
-                pointer-events: none;
-                user-select: none;
-
-                /*
-                 * Keep this modest so Foundry application
-                 * windows can appear above the tracker.
-                 */
-                z-index: 100;
-
-                font-family:
-                    Signika,
-                    sans-serif;
-
-                color: white;
-            }
-
-
-            #${UI_ID} .aec-tracker-wheel {
-
-                position: relative;
-
-                width: 50px;
-                height: 50px;
-
-                display: flex;
-
-                align-items: center;
-                justify-content: center;
-            }
-
-
-            #${UI_ID} .aec-tracker-ring {
-
-                position: absolute;
-
-                inset: 0;
-
-                border-radius: 50%;
-
-                border:
-                    4px solid
-                    rgba(255,255,255,0.8);
-
-                box-sizing: border-box;
-
-                background:
-                    rgba(0,0,0,0.55);
-
-                box-shadow:
-                    0 0 6px
-                    rgba(0,0,0,0.8);
-            }
-
-
-            #${UI_ID} .aec-tracker-text {
-
-                position: relative;
-
-                z-index: 1;
-
-                display: flex;
-
-                flex-direction: column;
-
-                align-items: center;
-
-                justify-content: center;
-
-                line-height: 1;
-            }
-
-
-            #${UI_ID} .aec-tracker-feet {
-
-                font-size: 16px;
-
-                font-weight: bold;
-            }
-
-
-            #${UI_ID} .aec-tracker-label {
-
-                font-size: 9px;
-
-                opacity: 0.85;
-
-                margin-top: 2px;
-            }
-        `;
-
-
-        document.head.appendChild(style);
-    }
-
-
-    /* ============================================================
-     * POSITION TRACKER
-     * ============================================================ */
+    // ============================================================
+    // POSITION MOVEMENT WHEEL
+    // ============================================================
 
     function positionTracker() {
 
         const ui =
             document.getElementById(UI_ID);
-
-        if (!ui) return;
-
 
         const filter =
             document.querySelector(
@@ -205,7 +88,9 @@
             );
 
 
-        if (!filter) return;
+        if (!ui || !filter) {
+            return;
+        }
 
 
         const rect =
@@ -224,20 +109,20 @@
         ui.style.left =
             `${centerX}px`;
 
-
         ui.style.top =
             `${centerY - 53}px`;
     }
 
 
-    /* ============================================================
-     * SCHEDULE POSITION UPDATE
-     * ============================================================ */
+    // ============================================================
+    // SCHEDULE POSITION UPDATE
+    // ============================================================
 
     function schedulePositionUpdate() {
 
-        if (positionFrame)
-            cancelAnimationFrame(positionFrame);
+        if (positionFrame !== null) {
+            return;
+        }
 
 
         positionFrame =
@@ -246,74 +131,215 @@
                 positionFrame = null;
 
                 positionTracker();
+
             });
     }
 
 
-    /* ============================================================
-     * UPDATE MOVEMENT DISPLAY
-     *
-     * IMPORTANT:
-     *
-     * This function ONLY updates the displayed numbers.
-     *
-     * It does NOT call setTrackerCombatVisibility().
-     *
-     * This prevents the recursive loop:
-     *
-     * updateMovement()
-     *      ->
-     * setTrackerCombatVisibility()
-     *      ->
-     * updateMovement()
-     *      ->
-     * ...
-     * ============================================================ */
+    // ============================================================
+    // GET SINGLE SELECTED TOKEN
+    //
+    // IMPORTANT:
+    //
+    // The tracker ONLY works when exactly ONE token is selected.
+    // ============================================================
+
+    function getSingleSelectedToken() {
+
+        const controlled =
+            canvas.tokens?.controlled ?? [];
+
+
+        if (controlled.length !== 1) {
+            return null;
+        }
+
+
+        return controlled[0];
+    }
+
+
+    // ============================================================
+    // MOVEMENT DISPLAY
+    //
+    // current = movement spent
+    // maximum = total movement available
+    // ============================================================
 
     function updateMovement(
-        spent,
+        current,
         maximum
     ) {
 
         const ui =
             document.getElementById(UI_ID);
 
-        if (!ui) return;
+        const value =
+            document.getElementById(
+                "aec-movement-value"
+            );
+
+        const warning =
+            document.getElementById(
+                "aec-warning"
+            );
+
+        const ring =
+            ui?.querySelector(
+                ".aec-stamina-ring"
+            );
 
 
-        const feet =
+        if (!ui || !value || !ring) {
+            return;
+        }
+
+
+        current =
             Math.max(
                 0,
-                Math.round(
-                    maximum - spent
+                Number(current) || 0
+            );
+
+
+        maximum =
+            Math.max(
+                0,
+                Number(maximum) || 0
+            );
+
+
+        const remaining =
+            Math.max(
+                0,
+                maximum - current
+            );
+
+
+        const percent =
+            maximum > 0
+                ? Math.min(
+                    100,
+                    (remaining / maximum) * 100
                 )
-            );
+                : 0;
 
 
-        const feetElement =
-            ui.querySelector(
-                ".aec-tracker-feet"
-            );
+        value.textContent =
+            `${Math.ceil(remaining)}`;
 
 
-        if (feetElement) {
+        ring.style.setProperty(
+            "--aec-progress",
+            `${percent}%`
+        );
 
-            feetElement.textContent =
-                feet;
+
+        // --------------------------------------------------------
+        // EMPTY MOVEMENT
+        // --------------------------------------------------------
+
+        if (remaining <= 0) {
+
+            value.style.color =
+                "rgb(255,102,102)";
+
+
+            ring.style.filter =
+                "drop-shadow(0 0 6px rgba(255,70,70,0.9))";
+
+
+            if (warning) {
+
+                warning.style.display =
+                    "none";
+            }
+
+        }
+
+
+        // --------------------------------------------------------
+        // NORMAL MOVEMENT
+        // --------------------------------------------------------
+
+        else {
+
+            value.style.color =
+                "rgb(255,245,190)";
+
+
+            ring.style.filter =
+                "drop-shadow(0 1px 3px rgba(0,0,0,0.65))";
+
+
+            if (warning) {
+
+                warning.style.display =
+                    "none";
+            }
         }
     }
 
 
-    /* ============================================================
-     * TRACKER VISIBILITY
-     *
-     * The tracker follows the currently selected token.
-     *
-     * For GMs this means selecting different tokens switches
-     * which actor's movement state is displayed.
-     *
-     * For players this follows whichever token they control.
-     * ============================================================ */
+    // ============================================================
+    // UPDATE FOR ACTOR
+    //
+    // This prevents an NPC being moved by the GM from changing
+    // the UI of some OTHER selected token.
+    // ============================================================
+
+    function updateMovementForActor(
+        actor
+    ) {
+
+        if (!actor) return;
+
+
+        const token =
+            getSingleSelectedToken();
+
+
+        if (!token?.actor) {
+            return;
+        }
+
+
+        if (
+            token.actor.id !==
+            actor.id
+        ) {
+            return;
+        }
+
+
+        const state =
+            globalThis.movementTracker?.getState(
+                actor
+            );
+
+
+        if (!state) {
+            return;
+        }
+
+
+        updateMovement(
+            state.spent,
+            state.maximum
+        );
+    }
+
+
+    // ============================================================
+    // TRACKER VISIBILITY
+    //
+    // ONLY SHOW WHEN:
+    //
+    // 1. Combat is active
+    // 2. EXACTLY ONE token is selected
+    // 3. That token has an actor
+    // 4. That actor has movement state
+    // ============================================================
 
     function setTrackerCombatVisibility() {
 
@@ -329,11 +355,12 @@
 
 
         const selectedToken =
-            canvas.tokens?.controlled?.[0];
+            getSingleSelectedToken();
 
 
         /*
-         * No combat or no selected token.
+         * No combat or anything other than exactly one
+         * selected token.
          */
 
         if (
@@ -354,10 +381,6 @@
             );
 
 
-        /*
-         * Actor does not have movement state yet.
-         */
-
         if (!state) {
 
             ui.style.display =
@@ -368,13 +391,14 @@
 
 
         /*
-         * IMPORTANT:
-         *
-         * Do NOT call updateMovement() here.
-         *
-         * updateMovement() is only responsible for
-         * changing the displayed number.
+         * Update the display whenever visibility is refreshed.
          */
+
+        updateMovement(
+            state.spent,
+            state.maximum
+        );
+
 
         ui.style.display =
             "flex";
@@ -384,11 +408,9 @@
     }
 
 
-    /* ============================================================
-     * BG3 HUD VISIBILITY
-     *
-     * Firefox compatibility fix.
-     * ============================================================ */
+    // ============================================================
+    // BG3 HUD ACTION INDICATORS
+    // ============================================================
 
     function setBG3CombatVisibility() {
 
@@ -405,18 +427,12 @@
 
 
         /*
-         * Firefox compatibility:
+         * Firefox compatibility.
          *
-         * BG3 can leave an inline
-         *
-         *     display: none
-         *
-         * on the hotbar even though the HUD
-         * is marked as visible.
+         * BG3 can leave an inline display:none on the hotbar
+         * even though the HUD is marked as visible.
          *
          * Remove ONLY the inline display property.
-         *
-         * Do NOT force display:grid or width.
          */
 
         if (
@@ -463,17 +479,17 @@
                 "important"
             );
 
-        } else {
+        }
+
+        else {
 
             filter.style.removeProperty(
                 "opacity"
             );
 
-
             filter.style.removeProperty(
                 "visibility"
             );
-
 
             filter.style.removeProperty(
                 "display"
@@ -482,11 +498,80 @@
     }
 
 
-    /* ============================================================
-     * TOKEN SELECTION HOOK
-     *
-     * This is what makes the tracker follow the selected token.
-     * ============================================================ */
+    // ============================================================
+    // BG3 HUD WATCHER
+    // ============================================================
+
+    function startBG3Watcher() {
+
+        if (window.__aecBG3Watcher) {
+
+            window.__aecBG3Watcher.disconnect();
+
+        }
+
+
+        window.__aecBG3Watcher =
+            new MutationObserver(() => {
+
+                schedulePositionUpdate();
+
+
+                if (
+                    game.combat?.started === true
+                ) {
+
+                    setBG3CombatVisibility();
+
+                }
+
+
+                setTrackerCombatVisibility();
+
+            });
+
+
+        window.__aecBG3Watcher.observe(
+            document.body,
+            {
+                childList: true,
+
+                subtree: true,
+
+                attributes: true,
+
+                attributeFilter: [
+                    "style",
+                    "class"
+                ]
+            }
+        );
+    }
+
+
+    // ============================================================
+    // WINDOW POSITION LISTENERS
+    // ============================================================
+
+    function registerPositionListeners() {
+
+        window.addEventListener(
+            "resize",
+            schedulePositionUpdate
+        );
+
+
+        window.addEventListener(
+            "scroll",
+            schedulePositionUpdate,
+            true
+        );
+    }
+
+
+    // ============================================================
+    // TOKEN SELECTION
+    // ============================================================
 
     function registerTokenSelectionHook() {
 
@@ -507,10 +592,27 @@
 
 
                 /*
-                 * TOKEN DESELECTED
+                 * IMPORTANT:
+                 *
+                 * controlToken fires for individual tokens.
+                 *
+                 * Therefore we DO NOT simply trust "controlled".
+                 *
+                 * Instead we look at the complete current
+                 * controlled-token collection.
                  */
 
-                if (!controlled) {
+                const selectedToken =
+                    getSingleSelectedToken();
+
+
+                /*
+                 * No token OR multiple tokens selected.
+                 */
+
+                if (
+                    !selectedToken
+                ) {
 
                     ui.style.display =
                         "none";
@@ -519,12 +621,8 @@
                 }
 
 
-                /*
-                 * TOKEN SELECTED
-                 */
-
                 const actor =
-                    token?.actor;
+                    selectedToken.actor;
 
 
                 if (!actor) {
@@ -535,11 +633,6 @@
                     return;
                 }
 
-
-                /*
-                 * Get this specific actor's
-                 * movement state.
-                 */
 
                 const state =
                     globalThis.movementTracker?.getState(
@@ -556,13 +649,6 @@
                 }
 
 
-                /*
-                 * Update the displayed movement.
-                 *
-                 * This is safe because updateMovement()
-                 * no longer calls setTrackerCombatVisibility().
-                 */
-
                 updateMovement(
                     state.spent,
                     state.maximum
@@ -574,14 +660,15 @@
 
 
                 schedulePositionUpdate();
+
             }
         );
     }
 
 
-    /* ============================================================
-     * COMBAT HOOKS
-     * ============================================================ */
+    // ============================================================
+    // COMBAT HOOKS
+    // ============================================================
 
     function registerCombatHooks() {
 
@@ -593,11 +680,6 @@
 
                 setBG3CombatVisibility();
 
-
-                /*
-                 * BG3 sometimes rebuilds its HUD
-                 * shortly after combat starts.
-                 */
 
                 setTimeout(
                     () => {
@@ -644,20 +726,14 @@
             "updateCombat",
             (
                 combat,
-                changes
+                changed
             ) => {
 
                 setTrackerCombatVisibility();
 
 
-                /*
-                 * Turn changes can cause BG3 HUD
-                 * elements to be rebuilt/repositioned.
-                 */
-
                 if (
-                    changes?.turn !== undefined ||
-                    changes?.round !== undefined
+                    "turn" in changed
                 ) {
 
                     setBG3CombatVisibility();
@@ -669,68 +745,308 @@
     }
 
 
-    /* ============================================================
-     * BG3 HUD MUTATION WATCHER
-     * ============================================================ */
+    // ============================================================
+    // STYLES
+    // ============================================================
 
-    function registerBG3Watcher() {
+    function injectStyles() {
 
-        const observer =
-            new MutationObserver(
-                () => {
+        if (
+            document.getElementById(
+                STYLE_ID
+            )
+        ) {
 
-                    schedulePositionUpdate();
-
-
-                    if (
-                        game.combat?.started === true
-                    ) {
-
-                        setBG3CombatVisibility();
-                    }
+            return;
+        }
 
 
-                    setTrackerCombatVisibility();
-                }
+        const style =
+            document.createElement(
+                "style"
             );
 
 
-        observer.observe(
-            document.body,
-            {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: [
-                    "style",
-                    "class"
-                ]
-            }
+        style.id =
+            STYLE_ID;
+
+
+        style.textContent = `
+
+/* ============================================================
+   MOVEMENT TRACKER
+   ============================================================ */
+
+#${UI_ID} {
+
+    position: fixed;
+
+    width: 50px;
+    height: 50px;
+
+    transform:
+        translateX(-50%);
+
+    display: none;
+
+    align-items: center;
+    justify-content: center;
+
+    pointer-events: none;
+
+    user-select: none;
+
+    z-index: 100;
+
+    font-family:
+        Signika,
+        sans-serif;
+
+    color: white;
+}
+
+
+/* ============================================================
+   WHEEL
+   ============================================================ */
+
+#${UI_ID} .aec-stamina-wheel {
+
+    width: 50px;
+    height: 50px;
+
+    position: relative;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+}
+
+
+/* ============================================================
+   YELLOW MOVEMENT RING
+   ============================================================ */
+
+#${UI_ID} .aec-stamina-ring {
+
+    --aec-progress: 100%;
+
+    width: 47px;
+    height: 47px;
+
+    border-radius: 50%;
+
+    position: relative;
+
+    background:
+        conic-gradient(
+            from -90deg,
+
+            #e7c85a
+                0 var(--aec-progress),
+
+            rgba(20,20,20,0.70)
+                var(--aec-progress) 100%
+        );
+
+    box-shadow:
+
+        0 0 4px
+            rgba(0,0,0,0.90),
+
+        0 0 5px
+            rgba(231,200,90,0.35),
+
+        inset 0 0 3px
+            rgba(255,255,255,0.30);
+
+    transition:
+        filter 0.15s ease;
+}
+
+
+/* ============================================================
+   SEGMENT MARKERS
+   ============================================================ */
+
+#${UI_ID} .aec-stamina-ring::before {
+
+    content: "";
+
+    position: absolute;
+
+    inset: 0;
+
+    border-radius: 50%;
+
+    background:
+        repeating-conic-gradient(
+            from -90deg,
+
+            rgba(20,20,20,0.85)
+                0deg 4deg,
+
+            transparent
+                4deg 30deg
+        );
+
+    -webkit-mask:
+        radial-gradient(
+            farthest-side,
+
+            transparent
+                calc(100% - 6px),
+
+            #000
+                calc(100% - 5px)
+        );
+
+    mask:
+        radial-gradient(
+            farthest-side,
+
+            transparent
+                calc(100% - 6px),
+
+            #000
+                calc(100% - 5px)
+        );
+
+    pointer-events: none;
+}
+
+
+/* ============================================================
+   CENTER
+   ============================================================ */
+
+#${UI_ID} .aec-stamina-center {
+
+    position: absolute;
+
+    inset: 10px;
+
+    border-radius: 50%;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    background:
+        radial-gradient(
+            circle,
+
+            rgba(30,30,30,0.97),
+
+            rgba(10,10,10,0.99)
+        );
+
+    border:
+        1px solid
+        rgba(255,255,255,0.18);
+
+    box-shadow:
+        inset 0 0 4px
+        rgba(0,0,0,0.9);
+}
+
+
+/* ============================================================
+   MOVEMENT NUMBER
+   ============================================================ */
+
+#aec-movement-value {
+
+    font-size: 16px;
+
+    font-weight: bold;
+
+    line-height: 1;
+
+    color:
+        rgb(255,245,190);
+
+    text-shadow:
+        0 1px 2px
+        rgba(0,0,0,0.9);
+}
+
+
+/* ============================================================
+   WARNING
+   ============================================================ */
+
+#aec-warning {
+
+    display: none;
+
+    position: absolute;
+
+    top: 52px;
+
+    left: 50%;
+
+    transform:
+        translateX(-50%);
+
+    white-space: nowrap;
+
+    font-size: 9px;
+
+    font-weight: bold;
+
+    color:
+        rgb(255,102,102);
+
+    text-shadow:
+        0 1px 2px
+        rgba(0,0,0,0.9);
+}
+
+        `;
+
+
+        document.head.appendChild(
+            style
         );
     }
 
 
-    /* ============================================================
-     * INITIALIZE
-     * ============================================================ */
+    // ============================================================
+    // PUBLIC UI API
+    // ============================================================
+
+    globalThis.AECTrackerUI = {
+
+        updateMovement,
+
+        updateMovementForActor,
+
+        setTrackerCombatVisibility,
+
+        schedulePositionUpdate
+
+    };
+
+
+    // ============================================================
+    // INITIALIZE
+    // ============================================================
 
     function initialize() {
 
-        createStyles();
-
         createTrackerUI();
-
 
         registerTokenSelectionHook();
 
         registerCombatHooks();
 
-        registerBG3Watcher();
+        startBG3Watcher();
 
+        registerPositionListeners();
 
-        /*
-         * Initial state.
-         */
 
         setTrackerCombatVisibility();
 
@@ -738,11 +1054,6 @@
 
         schedulePositionUpdate();
 
-
-        /*
-         * BG3 can finish rendering slightly after
-         * our module initializes.
-         */
 
         setTimeout(
             () => {
@@ -759,9 +1070,9 @@
     }
 
 
-    /* ============================================================
-     * READY
-     * ============================================================ */
+    // ============================================================
+    // READY
+    // ============================================================
 
     Hooks.once(
         "ready",
