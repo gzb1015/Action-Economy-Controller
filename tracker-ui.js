@@ -1,20 +1,3 @@
-// ============================================================
-// TRACKER UI
-// Action Economy / Movement Display
-// Foundry VTT v13 / D&D 5e 5.3.3
-//
-// IMPORTANT:
-// The movement wheel is intentionally kept OUTSIDE the
-// BG3 filter container.
-//
-// BG3 rebuilds the filter container when movement/actions
-// change. Keeping our wheel on document.body prevents BG3
-// from destroying it.
-//
-// The wheel is positioned visually above the center of
-// the BG3 action filter.
-// ============================================================
-
 (() => {
     "use strict";
 
@@ -24,9 +7,9 @@
     let positionFrame = null;
 
 
-    // ============================================================
-    // CREATE UI
-    // ============================================================
+    /* ============================================================
+     * CREATE TRACKER UI
+     * ============================================================ */
 
     function createTrackerUI() {
 
@@ -39,59 +22,182 @@
         ui =
             document.createElement("div");
 
-        ui.id =
-            UI_ID;
-
+        ui.id = UI_ID;
 
         ui.innerHTML = `
-            <div
-                class="aec-stamina-wheel"
-                aria-label="Movement remaining"
-            >
-                <div class="aec-stamina-ring">
+            <div class="aec-tracker-wheel">
 
-                    <div class="aec-stamina-center">
+                <div class="aec-tracker-ring"></div>
 
-                        <span id="aec-movement-value">
-                            30
-                        </span>
+                <div class="aec-tracker-text">
 
+                    <div class="aec-tracker-feet">
+                        0
+                    </div>
+
+                    <div class="aec-tracker-label">
+                        ft
                     </div>
 
                 </div>
-            </div>
 
-            <div id="aec-warning">
-                NO MORE MOVEMENT
             </div>
         `;
 
 
         /*
-         * CRITICAL:
+         * IMPORTANT:
          *
-         * Keep this on BODY.
-         *
-         * Do NOT append it to .bg3-filter-container.
+         * The tracker is attached directly to BODY rather than
+         * inside the BG3 HUD. BG3 rebuilds its HUD/filter
+         * containers, which would otherwise destroy the tracker.
          */
+
         document.body.appendChild(ui);
-
-
-        injectStyles();
-
 
         return ui;
     }
 
 
-    // ============================================================
-    // POSITION MOVEMENT WHEEL
-    // ============================================================
+    /* ============================================================
+     * CREATE STYLES
+     * ============================================================ */
+
+    function createStyles() {
+
+        if (document.getElementById(STYLE_ID))
+            return;
+
+
+        const style =
+            document.createElement("style");
+
+        style.id = STYLE_ID;
+
+
+        style.textContent = `
+
+            #${UI_ID} {
+
+                position: fixed;
+
+                width: 50px;
+                height: 50px;
+
+                transform:
+                    translateX(-50%);
+
+                display: none;
+
+                align-items: center;
+                justify-content: center;
+
+                pointer-events: none;
+                user-select: none;
+
+                /*
+                 * Keep this modest so Foundry application
+                 * windows can appear above the tracker.
+                 */
+                z-index: 100;
+
+                font-family:
+                    Signika,
+                    sans-serif;
+
+                color: white;
+            }
+
+
+            #${UI_ID} .aec-tracker-wheel {
+
+                position: relative;
+
+                width: 50px;
+                height: 50px;
+
+                display: flex;
+
+                align-items: center;
+                justify-content: center;
+            }
+
+
+            #${UI_ID} .aec-tracker-ring {
+
+                position: absolute;
+
+                inset: 0;
+
+                border-radius: 50%;
+
+                border:
+                    4px solid
+                    rgba(255,255,255,0.8);
+
+                box-sizing: border-box;
+
+                background:
+                    rgba(0,0,0,0.55);
+
+                box-shadow:
+                    0 0 6px
+                    rgba(0,0,0,0.8);
+            }
+
+
+            #${UI_ID} .aec-tracker-text {
+
+                position: relative;
+
+                z-index: 1;
+
+                display: flex;
+
+                flex-direction: column;
+
+                align-items: center;
+
+                justify-content: center;
+
+                line-height: 1;
+            }
+
+
+            #${UI_ID} .aec-tracker-feet {
+
+                font-size: 16px;
+
+                font-weight: bold;
+            }
+
+
+            #${UI_ID} .aec-tracker-label {
+
+                font-size: 9px;
+
+                opacity: 0.85;
+
+                margin-top: 2px;
+            }
+        `;
+
+
+        document.head.appendChild(style);
+    }
+
+
+    /* ============================================================
+     * POSITION TRACKER
+     * ============================================================ */
 
     function positionTracker() {
 
         const ui =
             document.getElementById(UI_ID);
+
+        if (!ui) return;
+
 
         const filter =
             document.querySelector(
@@ -99,28 +205,13 @@
             );
 
 
-        if (!ui || !filter) {
-            return;
-        }
+        if (!filter) return;
 
 
-        /*
-         * Get the actual screen position of the BG3
-         * action filter.
-         */
         const rect =
             filter.getBoundingClientRect();
 
 
-        /*
-         * Put the wheel directly above the CENTER
-         * of the action filter.
-         *
-         * Example:
-         *
-         *             O
-         *      [O][*][o][A]
-         */
         const centerX =
             rect.left +
             (rect.width / 2);
@@ -130,29 +221,23 @@
             rect.top;
 
 
-        /*
-         * 50px wheel.
-         *
-         * Translate it upward by its full height plus
-         * a small 3px gap.
-         */
         ui.style.left =
             `${centerX}px`;
+
 
         ui.style.top =
             `${centerY - 53}px`;
     }
 
 
-    // ============================================================
-    // SCHEDULE POSITION UPDATE
-    // ============================================================
+    /* ============================================================
+     * SCHEDULE POSITION UPDATE
+     * ============================================================ */
 
     function schedulePositionUpdate() {
 
-        if (positionFrame !== null) {
-            return;
-        }
+        if (positionFrame)
+            cancelAnimationFrame(positionFrame);
 
 
         positionFrame =
@@ -161,430 +246,342 @@
                 positionFrame = null;
 
                 positionTracker();
-
             });
     }
 
 
-    // ============================================================
-    // COMBAT VISIBILITY
-    // ============================================================
+    /* ============================================================
+     * UPDATE MOVEMENT DISPLAY
+     *
+     * IMPORTANT:
+     *
+     * This function ONLY updates the displayed numbers.
+     *
+     * It does NOT call setTrackerCombatVisibility().
+     *
+     * This prevents the recursive loop:
+     *
+     * updateMovement()
+     *      ->
+     * setTrackerCombatVisibility()
+     *      ->
+     * updateMovement()
+     *      ->
+     * ...
+     * ============================================================ */
 
-    function setTrackerCombatVisibility() {
-
-    const ui =
-        document.getElementById(UI_ID);
-
-    if (!ui) return;
-
-
-    const inCombat =
-        !!game.combat &&
-        game.combat.started === true;
-
-
-    const selectedToken =
-        canvas.tokens?.controlled?.[0];
-
-
-    if (!inCombat || !selectedToken?.actor) {
-
-        ui.style.display =
-            "none";
-
-        return;
-
-    }
-
-
-    const state =
-        globalThis.movementTracker?.getState(
-            selectedToken.actor
-        );
-
-    if (!state) {
-
-        ui.style.display =
-            "none";
-
-        return;
-
-    }
-
-
-    updateMovement(
-        state.spent,
-        state.maximum
-    );
-
-
-    ui.style.display =
-        "flex";
-
-
-    schedulePositionUpdate();
-}
-
-
-    // ============================================================
-    // MOVEMENT DISPLAY
-    //
-    // current = movement spent
-    // maximum = movement available
-    // ============================================================
-
-    function updateMovement(current, maximum) {
+    function updateMovement(
+        spent,
+        maximum
+    ) {
 
         const ui =
             document.getElementById(UI_ID);
 
-        const value =
-            document.getElementById(
-                "aec-movement-value"
-            );
+        if (!ui) return;
 
-        const warning =
-            document.getElementById(
-                "aec-warning"
-            );
 
-        const ring =
-            ui?.querySelector(
-                ".aec-stamina-ring"
+        const feet =
+            Math.max(
+                0,
+                Math.round(
+                    maximum - spent
+                )
             );
 
 
-        if (!value || !ring) {
+        const feetElement =
+            ui.querySelector(
+                ".aec-tracker-feet"
+            );
+
+
+        if (feetElement) {
+
+            feetElement.textContent =
+                feet;
+        }
+    }
+
+
+    /* ============================================================
+     * TRACKER VISIBILITY
+     *
+     * The tracker follows the currently selected token.
+     *
+     * For GMs this means selecting different tokens switches
+     * which actor's movement state is displayed.
+     *
+     * For players this follows whichever token they control.
+     * ============================================================ */
+
+    function setTrackerCombatVisibility() {
+
+        const ui =
+            document.getElementById(UI_ID);
+
+        if (!ui) return;
+
+
+        const inCombat =
+            !!game.combat &&
+            game.combat.started === true;
+
+
+        const selectedToken =
+            canvas.tokens?.controlled?.[0];
+
+
+        /*
+         * No combat or no selected token.
+         */
+
+        if (
+            !inCombat ||
+            !selectedToken?.actor
+        ) {
+
+            ui.style.display =
+                "none";
+
             return;
         }
 
 
-        current =
-            Math.max(
-                0,
-                Number(current) || 0
+        const state =
+            globalThis.movementTracker?.getState(
+                selectedToken.actor
             );
 
 
-        maximum =
-            Math.max(
-                0,
-                Number(maximum) || 0
-            );
+        /*
+         * Actor does not have movement state yet.
+         */
 
+        if (!state) {
 
-        const remaining =
-            Math.max(
-                0,
-                maximum - current
-            );
+            ui.style.display =
+                "none";
 
-
-        const percent =
-            maximum > 0
-                ? Math.min(
-                    100,
-                    (remaining / maximum) * 100
-                )
-                : 0;
-
-
-        value.textContent =
-            `${Math.ceil(remaining)}`;
-
-
-        ring.style.setProperty(
-            "--aec-progress",
-            `${percent}%`
-        );
-
-
-        // --------------------------------------------------------
-        // EMPTY MOVEMENT
-        // --------------------------------------------------------
-
-        if (remaining <= 0) {
-
-            value.style.color =
-                "rgb(255,102,102)";
-
-
-            ring.style.filter =
-                "drop-shadow(0 0 6px rgba(255,70,70,0.9))";
-
-
-            if (warning) {
-
-                warning.style.display =
-                    "none";
-            }
-
+            return;
         }
 
 
-        // --------------------------------------------------------
-        // NORMAL MOVEMENT
-        // --------------------------------------------------------
+        /*
+         * IMPORTANT:
+         *
+         * Do NOT call updateMovement() here.
+         *
+         * updateMovement() is only responsible for
+         * changing the displayed number.
+         */
 
-        else {
-
-            value.style.color =
-                "rgb(255,245,190)";
-
-
-            ring.style.filter =
-                "drop-shadow(0 1px 3px rgba(0,0,0,0.65))";
-
-
-            if (warning) {
-
-                warning.style.display =
-                    "none";
-            }
-        }
+        ui.style.display =
+            "flex";
 
 
-        setTrackerCombatVisibility();
+        schedulePositionUpdate();
     }
 
 
-    // ============================================================
-    // BG3 HUD ACTION INDICATORS
-    //
-    // THIS IS PRESERVED FROM YOUR WORKING VERSION.
-    //
-    // Do NOT remove the !important declarations.
-    // ============================================================
-
-   function setBG3CombatVisibility() {
-
-    const hotbar =
-        document.querySelector("#bg3-hotbar");
-
-    const filter =
-        document.querySelector(".bg3-filter-container");
-
-
-    /*
-     * Firefox compatibility:
+    /* ============================================================
+     * BG3 HUD VISIBILITY
      *
-     * BG3 can leave an inline "display: none"
-     * on the hotbar even though the HUD is marked
-     * as visible.
-     *
-     * Remove ONLY the inline display property.
-     * Do not force display:grid or width.
-     */
-    if (
-        navigator.userAgent.includes("Firefox") &&
-        hotbar &&
-        hotbar.classList.contains("bg3-hud-visible")
-    ) {
-        hotbar.style.removeProperty("display");
-    }
+     * Firefox compatibility fix.
+     * ============================================================ */
+
+    function setBG3CombatVisibility() {
+
+        const hotbar =
+            document.querySelector(
+                "#bg3-hotbar"
+            );
 
 
-    if (!filter) return;
+        const filter =
+            document.querySelector(
+                ".bg3-filter-container"
+            );
 
 
-    const inCombat =
-        !!game.combat &&
-        game.combat.started === true;
+        /*
+         * Firefox compatibility:
+         *
+         * BG3 can leave an inline
+         *
+         *     display: none
+         *
+         * on the hotbar even though the HUD
+         * is marked as visible.
+         *
+         * Remove ONLY the inline display property.
+         *
+         * Do NOT force display:grid or width.
+         */
 
+        if (
+            navigator.userAgent.includes("Firefox") &&
+            hotbar &&
+            hotbar.classList.contains(
+                "bg3-hud-visible"
+            )
+        ) {
 
-    if (inCombat) {
-
-        filter.style.setProperty(
-            "opacity",
-            "1",
-            "important"
-        );
-
-        filter.style.setProperty(
-            "visibility",
-            "visible",
-            "important"
-        );
-
-        filter.style.setProperty(
-            "display",
-            "flex",
-            "important"
-        );
-
-    } else {
-
-        filter.style.removeProperty("opacity");
-        filter.style.removeProperty("visibility");
-        filter.style.removeProperty("display");
-    }
-}
-
-
-    // ============================================================
-    // BG3 HUD WATCHER
-    // ============================================================
-
-    function startBG3Watcher() {
-
-        if (window.__aecBG3Watcher) {
-
-            window.__aecBG3Watcher.disconnect();
-
+            hotbar.style.removeProperty(
+                "display"
+            );
         }
 
 
-        window.__aecBG3Watcher =
-            new MutationObserver(() => {
+        if (!filter) return;
 
-                /*
-                 * BG3 may rebuild the filter container.
-                 *
-                 * We DON'T try to append the wheel to it anymore.
-                 *
-                 * We simply reposition our independent overlay.
-                 */
-                schedulePositionUpdate();
+
+        const inCombat =
+            !!game.combat &&
+            game.combat.started === true;
+
+
+        if (inCombat) {
+
+            filter.style.setProperty(
+                "opacity",
+                "1",
+                "important"
+            );
+
+
+            filter.style.setProperty(
+                "visibility",
+                "visible",
+                "important"
+            );
+
+
+            filter.style.setProperty(
+                "display",
+                "flex",
+                "important"
+            );
+
+        } else {
+
+            filter.style.removeProperty(
+                "opacity"
+            );
+
+
+            filter.style.removeProperty(
+                "visibility"
+            );
+
+
+            filter.style.removeProperty(
+                "display"
+            );
+        }
+    }
+
+
+    /* ============================================================
+     * TOKEN SELECTION HOOK
+     *
+     * This is what makes the tracker follow the selected token.
+     * ============================================================ */
+
+    function registerTokenSelectionHook() {
+
+        Hooks.on(
+            "controlToken",
+            (
+                token,
+                controlled
+            ) => {
+
+                const ui =
+                    document.getElementById(
+                        UI_ID
+                    );
+
+
+                if (!ui) return;
 
 
                 /*
-                 * Preserve BG3 action icon visibility.
+                 * TOKEN DESELECTED
                  */
-                if (
-                    game.combat?.started === true
-                ) {
 
-                    setBG3CombatVisibility();
+                if (!controlled) {
 
+                    ui.style.display =
+                        "none";
+
+                    return;
                 }
 
 
                 /*
-                 * Keep movement wheel visible during combat.
+                 * TOKEN SELECTED
                  */
-                setTrackerCombatVisibility();
 
-            });
+                const actor =
+                    token?.actor;
 
 
-        window.__aecBG3Watcher.observe(
-            document.body,
-            {
-                childList: true,
+                if (!actor) {
 
-                subtree: true,
+                    ui.style.display =
+                        "none";
 
-                attributes: true,
+                    return;
+                }
 
-                attributeFilter: [
-                    "style",
-                    "class"
-                ]
+
+                /*
+                 * Get this specific actor's
+                 * movement state.
+                 */
+
+                const state =
+                    globalThis.movementTracker?.getState(
+                        actor
+                    );
+
+
+                if (!state) {
+
+                    ui.style.display =
+                        "none";
+
+                    return;
+                }
+
+
+                /*
+                 * Update the displayed movement.
+                 *
+                 * This is safe because updateMovement()
+                 * no longer calls setTrackerCombatVisibility().
+                 */
+
+                updateMovement(
+                    state.spent,
+                    state.maximum
+                );
+
+
+                ui.style.display =
+                    "flex";
+
+
+                schedulePositionUpdate();
             }
         );
     }
 
 
-    // ============================================================
-    // WINDOW RESIZE
-    // ============================================================
-
-    function registerPositionListeners() {
-
-        window.addEventListener(
-            "resize",
-            schedulePositionUpdate
-        );
-
-
-        window.addEventListener(
-            "scroll",
-            schedulePositionUpdate,
-            true
-        );
-    }
-
-// ============================================================
-// TOKEN SELECTION
-// ============================================================
-
-function registerTokenSelectionHook() {
-
-    Hooks.on(
-        "controlToken",
-        (token, controlled) => {
-
-            const ui =
-                document.getElementById(UI_ID);
-
-            if (!ui) return;
-
-
-            // ----------------------------------------------------
-            // TOKEN DESELECTED
-            // ----------------------------------------------------
-
-            if (!controlled) {
-
-                ui.style.display = "none";
-
-                return;
-
-            }
-
-
-            // ----------------------------------------------------
-            // TOKEN SELECTED
-            // ----------------------------------------------------
-
-            const actor =
-                token?.actor;
-
-            if (!actor) {
-
-                ui.style.display = "none";
-
-                return;
-
-            }
-
-
-            const state =
-                globalThis.movementTracker?.getState(actor);
-
-            if (!state) {
-
-                ui.style.display = "none";
-
-                return;
-
-            }
-
-
-            // ----------------------------------------------------
-            // UPDATE TRACKER
-            // ----------------------------------------------------
-
-            updateMovement(
-                state.spent,
-                state.maximum
-            );
-
-
-            ui.style.display =
-                "flex";
-
-
-            schedulePositionUpdate();
-
-        }
-    );
-
-}
-    
-    // ============================================================
-    // COMBAT HOOKS
-    // ============================================================
+    /* ============================================================
+     * COMBAT HOOKS
+     * ============================================================ */
 
     function registerCombatHooks() {
 
@@ -598,12 +595,16 @@ function registerTokenSelectionHook() {
 
 
                 /*
-                 * Give BG3 time to finish creating its HUD.
+                 * BG3 sometimes rebuilds its HUD
+                 * shortly after combat starts.
                  */
+
                 setTimeout(
                     () => {
 
                         setBG3CombatVisibility();
+
+                        setTrackerCombatVisibility();
 
                         schedulePositionUpdate();
 
@@ -616,6 +617,8 @@ function registerTokenSelectionHook() {
                     () => {
 
                         setBG3CombatVisibility();
+
+                        setTrackerCombatVisibility();
 
                         schedulePositionUpdate();
 
@@ -639,12 +642,23 @@ function registerTokenSelectionHook() {
 
         Hooks.on(
             "updateCombat",
-            (combat, changed) => {
+            (
+                combat,
+                changes
+            ) => {
 
                 setTrackerCombatVisibility();
 
 
-                if ("turn" in changed) {
+                /*
+                 * Turn changes can cause BG3 HUD
+                 * elements to be rebuilt/repositioned.
+                 */
+
+                if (
+                    changes?.turn !== undefined ||
+                    changes?.round !== undefined
+                ) {
 
                     setBG3CombatVisibility();
 
@@ -655,325 +669,99 @@ function registerTokenSelectionHook() {
     }
 
 
-    // ============================================================
-    // STYLES
-    // ============================================================
+    /* ============================================================
+     * BG3 HUD MUTATION WATCHER
+     * ============================================================ */
 
-    function injectStyles() {
+    function registerBG3Watcher() {
 
-        if (
-            document.getElementById(
-                STYLE_ID
-            )
-        ) {
-            return;
-        }
+        const observer =
+            new MutationObserver(
+                () => {
+
+                    schedulePositionUpdate();
 
 
-        const style =
-            document.createElement("style");
+                    if (
+                        game.combat?.started === true
+                    ) {
+
+                        setBG3CombatVisibility();
+                    }
 
 
-        style.id =
-            STYLE_ID;
+                    setTrackerCombatVisibility();
+                }
+            );
 
 
-        style.textContent = `
-
-/* ============================================================
-   MOVEMENT TRACKER
-   ============================================================ */
-
-#${UI_ID} {
-
-    position: fixed;
-
-    /*
-     * 50px total wheel.
-     */
-    width: 50px;
-    height: 50px;
-
-    /*
-     * left/top are set dynamically by JavaScript.
-     *
-     * transform centers the wheel on the BG3 action row.
-     */
-    transform:
-        translateX(-50%);
-
-    display: none;
-
-    align-items: center;
-    justify-content: center;
-
-    pointer-events: none;
-
-    user-select: none;
-
-    z-index: 100;
-
-    font-family:
-        Signika,
-        sans-serif;
-
-    color: white;
-}
-
-
-/* ============================================================
-   WHEEL
-   ============================================================ */
-
-#${UI_ID} .aec-stamina-wheel {
-
-    width: 50px;
-    height: 50px;
-
-    position: relative;
-
-    display: flex;
-
-    align-items: center;
-    justify-content: center;
-}
-
-
-/* ============================================================
-   OUTER RING
-   ============================================================ */
-
-#${UI_ID} .aec-stamina-ring {
-
-    --aec-progress: 100%;
-
-    width: 47px;
-    height: 47px;
-
-    border-radius: 50%;
-
-    position: relative;
-
-    background:
-        conic-gradient(
-            from -90deg,
-
-            #e7c85a
-                0 var(--aec-progress),
-
-            rgba(20,20,20,0.70)
-                var(--aec-progress) 100%
+        observer.observe(
+            document.body,
+            {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: [
+                    "style",
+                    "class"
+                ]
+            }
         );
-
-    box-shadow:
-
-        0 0 4px
-            rgba(0,0,0,0.90),
-
-        0 0 5px
-            rgba(231,200,90,0.35),
-
-        inset 0 0 3px
-            rgba(255,255,255,0.30);
-
-    transition:
-        filter 0.15s ease;
-}
-
-
-/* ============================================================
-   BOTW-INSPIRED SEGMENT DETAIL
-   ============================================================ */
-
-#${UI_ID} .aec-stamina-ring::before {
-
-    content: "";
-
-    position: absolute;
-
-    inset: 0;
-
-    border-radius: 50%;
-
-    background:
-        repeating-conic-gradient(
-            from -90deg,
-
-            rgba(20,20,20,0.85)
-                0deg 4deg,
-
-            transparent
-                4deg 30deg
-        );
-
-    -webkit-mask:
-        radial-gradient(
-            farthest-side,
-
-            transparent
-                calc(100% - 6px),
-
-            #000
-                calc(100% - 5px)
-        );
-
-    mask:
-        radial-gradient(
-            farthest-side,
-
-            transparent
-                calc(100% - 6px),
-
-            #000
-                calc(100% - 5px)
-        );
-
-    pointer-events: none;
-}
-
-
-/* ============================================================
-   CENTER
-   ============================================================ */
-
-#${UI_ID} .aec-stamina-center {
-
-    position: absolute;
-
-    inset: 10px;
-
-    border-radius: 50%;
-
-    display: flex;
-
-    align-items: center;
-    justify-content: center;
-
-    background:
-        radial-gradient(
-            circle,
-
-            rgba(30,30,30,0.97),
-
-            rgba(10,10,10,0.99)
-        );
-
-    border:
-        1px solid
-        rgba(255,255,255,0.20);
-
-    box-shadow:
-        inset 0 0 4px
-        rgba(0,0,0,0.90);
-}
-
-
-/* ============================================================
-   MOVEMENT NUMBER
-   ============================================================ */
-
-#${UI_ID} #aec-movement-value {
-
-    font-size: 12px;
-
-    font-weight: bold;
-
-    line-height: 1;
-
-    color:
-        rgb(255,245,190);
-
-    text-shadow:
-        0 1px 3px black;
-
-    white-space: nowrap;
-}
-
-
-/* ============================================================
-   WARNING
-   ============================================================ */
-
-#${UI_ID} #aec-warning {
-
-    display: none;
-}
-
-`;
-
-        document.head.appendChild(style);
     }
 
 
-    // ============================================================
-    // INITIALIZATION
-    // ============================================================
+    /* ============================================================
+     * INITIALIZE
+     * ============================================================ */
 
     function initialize() {
+
+        createStyles();
 
         createTrackerUI();
 
 
-        /*
-         * Start watching for BG3 HUD changes.
-         */
-        startBG3Watcher();
-
-
-        /*
-         * Keep the wheel positioned correctly when the
-         * browser window changes.
-         */
-        registerPositionListeners();
-
         registerTokenSelectionHook();
-        
-        /*
-         * Preserve combat functionality.
-         */
+
         registerCombatHooks();
 
+        registerBG3Watcher();
+
 
         /*
-         * Initial visibility.
+         * Initial state.
          */
+
         setTrackerCombatVisibility();
 
         setBG3CombatVisibility();
 
-
-        /*
-         * Initial positioning.
-         */
         schedulePositionUpdate();
 
 
-        console.log(
-            "%c[AEC UI] Movement UI initialized.",
-            "color: lime; font-size: 16px; font-weight: bold;"
+        /*
+         * BG3 can finish rendering slightly after
+         * our module initializes.
+         */
+
+        setTimeout(
+            () => {
+
+                setBG3CombatVisibility();
+
+                setTrackerCombatVisibility();
+
+                schedulePositionUpdate();
+
+            },
+            500
         );
     }
 
 
-    // ============================================================
-    // PUBLIC API
-    // ============================================================
-
-    globalThis.AECTrackerUI = {
-
-        updateMovement,
-
-        refreshBG3:
-            setBG3CombatVisibility,
-
-        refreshCombatVisibility:
-            setTrackerCombatVisibility
-    };
-
-
-    // ============================================================
-    // FOUNDRY READY
-    // ============================================================
+    /* ============================================================
+     * READY
+     * ============================================================ */
 
     Hooks.once(
         "ready",
