@@ -5,15 +5,14 @@
 // Foundry VTT 13
 // D&D 5e 5.3.3
 //
-// Handles the mechanical portions of the Grapple action that
-// are not handled by the imported Foundry/Plutonium activity:
+// Handles:
 //
-//   • Target size restriction
+//   • Grapple target size restriction
 //   • Athletics vs Athletics/Acrobatics contest
-//   • Grappled condition application
+//   • Grappled condition
 //
-// The existing Action Economy Controller remains responsible
-// for consuming the Action.
+// Action Economy Controller remains responsible for consuming
+// the Action.
 //
 // ============================================================
 
@@ -35,19 +34,17 @@ if (globalThis.alternateAttacks) {
 
 } else {
 
-    // ============================================================
-    // CONTROLLER
-    // ============================================================
-
     globalThis.alternateAttacks = {
 
-        // --------------------------------------------------------
+        // ========================================================
         // INITIALIZATION
-        // --------------------------------------------------------
+        // ========================================================
 
         init() {
 
-            if (globalThis.__aecAlternateAttacksInitialized) {
+            if (
+                globalThis.__aecAlternateAttacksInitialized
+            ) {
 
                 console.warn(
                     "[ALTERNATE ATTACKS] Already initialized."
@@ -58,16 +55,9 @@ if (globalThis.alternateAttacks) {
             }
 
 
-            globalThis.__aecAlternateAttacksInitialized = true;
+            globalThis.__aecAlternateAttacksInitialized =
+                true;
 
-
-            // ----------------------------------------------------
-            // Grapple activity hook
-            //
-            // We use postUseActivity because the existing
-            // activity/AEC system should be allowed to process
-            // the Action normally first.
-            // ----------------------------------------------------
 
             Hooks.on(
                 "dnd5e.postUseActivity",
@@ -108,14 +98,18 @@ if (globalThis.alternateAttacks) {
                 String(
                     activity.name ??
                     ""
-                ).trim().toLowerCase();
+                )
+                    .trim()
+                    .toLowerCase();
 
 
             const itemName =
                 String(
                     activity.item?.name ??
                     ""
-                ).trim().toLowerCase();
+                )
+                    .trim()
+                    .toLowerCase();
 
 
             return (
@@ -129,7 +123,7 @@ if (globalThis.alternateAttacks) {
 
 
         // ========================================================
-        // POST ACTIVITY HANDLER
+        // HANDLE GRAPPLE
         // ========================================================
 
         async handlePostUseActivity(
@@ -172,7 +166,7 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // Get target
+            // GET TARGET
             // ----------------------------------------------------
 
             const target =
@@ -222,7 +216,7 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // TARGET SIZE CHECK
+            // SIZE CHECK
             // ----------------------------------------------------
 
             if (
@@ -245,6 +239,7 @@ if (globalThis.alternateAttacks) {
                     target.name
                 );
 
+
                 return;
 
             }
@@ -255,15 +250,17 @@ if (globalThis.alternateAttacks) {
             // ----------------------------------------------------
 
             const attackerRoll =
-                await this.rollAthletics(
-                    actor
+                await this.rollSkill(
+                    actor,
+                    "ath",
+                    "Grapple — Athletics"
                 );
 
 
             if (!attackerRoll) {
 
                 console.warn(
-                    "[ALTERNATE ATTACKS] Grapple Athletics roll failed."
+                    "[ALTERNATE ATTACKS] Grappler Athletics roll failed."
                 );
 
                 return;
@@ -273,13 +270,30 @@ if (globalThis.alternateAttacks) {
 
             // ----------------------------------------------------
             // TARGET DEFENSE
-            //
-            // The target chooses Athletics or Acrobatics.
             // ----------------------------------------------------
 
-            const targetRoll =
-                await this.rollTargetDefense(
+            const targetSkill =
+                await this.chooseDefenseSkill(
                     targetActor
+                );
+
+
+            if (!targetSkill) {
+
+                console.warn(
+                    "[ALTERNATE ATTACKS] Grapple defense selection cancelled."
+                );
+
+                return;
+
+            }
+
+
+            const targetRoll =
+                await this.rollSkill(
+                    targetActor,
+                    targetSkill,
+                    `Grapple — ${targetSkill === "ath" ? "Athletics" : "Acrobatics"}`
                 );
 
 
@@ -295,7 +309,7 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // CONTEST
+            // COMPARE RESULTS
             // ----------------------------------------------------
 
             const attackerTotal =
@@ -353,7 +367,10 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // FAILURE
+            // FAILURE / TIE
+            //
+            // Grapple rules require the attacker to exceed the
+            // defender's result. A tie therefore fails.
             // ----------------------------------------------------
 
             ui.notifications.info(
@@ -388,30 +405,33 @@ if (globalThis.alternateAttacks) {
 
             const workflow =
                 results?.workflow ??
-                usageConfig?.workflow ??
-                globalThis.MidiQOL?.Workflow?.getWorkflow?.(
-                    activity.uuid
-                );
+                usageConfig?.workflow;
 
 
             if (
                 workflow?.targets?.size
             ) {
 
-                return workflow.targets.values().next().value;
+                return workflow.targets
+                    .values()
+                    .next()
+                    .value;
 
             }
 
 
             // ----------------------------------------------------
-            // Usage configuration
+            // Usage configuration targets
             // ----------------------------------------------------
 
             if (
                 usageConfig?.targets?.size
             ) {
 
-                return usageConfig.targets.values().next().value;
+                return usageConfig.targets
+                    .values()
+                    .next()
+                    .value;
 
             }
 
@@ -420,13 +440,16 @@ if (globalThis.alternateAttacks) {
                 usageConfig?.targets instanceof Set
             ) {
 
-                return usageConfig.targets.values().next().value;
+                return usageConfig.targets
+                    .values()
+                    .next()
+                    .value;
 
             }
 
 
             // ----------------------------------------------------
-            // Foundry activity target data
+            // Activity targets
             // ----------------------------------------------------
 
             const targets =
@@ -437,7 +460,29 @@ if (globalThis.alternateAttacks) {
                 targets?.size
             ) {
 
-                return targets.values().next().value;
+                return targets
+                    .values()
+                    .next()
+                    .value;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Currently targeted token fallback
+            // ----------------------------------------------------
+
+            const controlledTargets =
+                Array.from(
+                    game.user?.targets ?? []
+                );
+
+
+            if (
+                controlledTargets.length === 1
+            ) {
+
+                return controlledTargets[0];
 
             }
 
@@ -448,17 +493,7 @@ if (globalThis.alternateAttacks) {
 
 
         // ========================================================
-        // TARGET SIZE CHECK
-        //
-        // A creature can grapple a creature no more than one
-        // size category larger.
-        //
-        // Tiny       → Tiny, Small
-        // Small      → Small, Medium
-        // Medium     → Medium, Large
-        // Large      → Large, Huge
-        // Huge       → Huge, Gargantuan
-        // Gargantuan → Gargantuan
+        // SIZE CHECK
         // ========================================================
 
         canGrappleTarget(
@@ -484,12 +519,10 @@ if (globalThis.alternateAttacks) {
             ) {
 
                 console.warn(
-                    "[ALTERNATE ATTACKS] Could not determine creature size."
+                    "[ALTERNATE ATTACKS] Could not determine creature size; allowing grapple."
                 );
 
 
-                // Do not accidentally block a grapple because
-                // Foundry contains an unexpected/custom size.
                 return true;
 
             }
@@ -526,9 +559,15 @@ if (globalThis.alternateAttacks) {
             ];
 
 
+            const normalized =
+                String(size)
+                    .trim()
+                    .toLowerCase();
+
+
             const index =
                 sizes.indexOf(
-                    String(size).toLowerCase()
+                    normalized
                 );
 
 
@@ -542,19 +581,43 @@ if (globalThis.alternateAttacks) {
 
 
         // ========================================================
-        // ATHLETICS ROLL
+        // ROLL SKILL
+        //
+        // IMPORTANT:
+        //
+        // We intentionally do NOT use:
+        //
+        //     actor.rollSkill("ath")
+        //
+        // Midi-QOL's rollSkill wrapper in the user's setup
+        // expects the newer configuration structure.
+        //
+        // Instead, we construct a normal d20 roll from the
+        // actor's skill bonus.
+        //
+        // This preserves:
+        //
+        //   • skill proficiency
+        //   • ability modifier
+        //   • skill bonus
+        //   • normal Foundry Roll
+        //
         // ========================================================
 
-        async rollAthletics(actor) {
+        async rollSkill(
+            actor,
+            skillId,
+            flavor
+        ) {
 
-            const athletics =
-                actor.system?.skills?.ath;
+            const skill =
+                actor.system?.skills?.[skillId];
 
 
-            if (!athletics) {
+            if (!skill) {
 
                 ui.notifications.error(
-                    `${actor.name} does not have an Athletics skill.`
+                    `${actor.name} does not have ${skillId === "ath" ? "Athletics" : "Acrobatics"}.`
                 );
 
 
@@ -563,64 +626,76 @@ if (globalThis.alternateAttacks) {
             }
 
 
+            const bonus =
+                Number(
+                    skill.total ??
+                    skill.bonus ??
+                    0
+                );
+
+
             console.log(
-                "[ALTERNATE ATTACKS] Rolling Athletics for",
-                actor.name
+                "[ALTERNATE ATTACKS] Building skill roll:",
+                {
+                    actor:
+                        actor.name,
+
+                    skill:
+                        skillId,
+
+                    bonus:
+                        bonus
+                }
             );
 
 
+            // ----------------------------------------------------
+            // Construct the roll.
+            //
+            // We use the skill's calculated total rather than
+            // rebuilding proficiency/ability calculations
+            // ourselves.
+            // ----------------------------------------------------
+
             const roll =
-                await actor.rollSkill(
-                    "ath"
-                );
+                await new Roll(
+                    `1d20 + ${bonus}`
+                ).evaluate();
 
 
-            return roll ?? null;
+            // ----------------------------------------------------
+            // Create normal Foundry chat message.
+            // ----------------------------------------------------
 
-        },
+            await roll.toMessage({
 
+                speaker:
+                    ChatMessage.getSpeaker({
+                        actor
+                    }),
 
-        // ========================================================
-        // TARGET DEFENSE
-        //
-        // Player-controlled targets receive a choice between
-        // Athletics and Acrobatics.
-        //
-        // For NPCs, use Athletics by default unless the user
-        // chooses otherwise through the dialog.
-        // ========================================================
+                flavor:
+                    `<strong>${actor.name}</strong> — ${flavor}`
 
-        async rollTargetDefense(actor) {
-
-            const choice =
-                await this.chooseDefenseSkill(
-                    actor
-                );
-
-
-            if (!choice) return null;
+            });
 
 
             console.log(
-                "[ALTERNATE ATTACKS] Target defense:",
+                "%c[ALTERNATE ATTACKS] SKILL ROLL COMPLETE",
+                "color: cyan; font-weight: bold;",
                 actor.name,
-                choice
+                skillId,
+                roll.total
             );
 
 
-            const roll =
-                await actor.rollSkill(
-                    choice
-                );
-
-
-            return roll ?? null;
+            return roll;
 
         },
 
 
         // ========================================================
-        // CHOOSE DEFENSE SKILL
+        // CHOOSE TARGET DEFENSE
         // ========================================================
 
         async chooseDefenseSkill(actor) {
@@ -628,13 +703,38 @@ if (globalThis.alternateAttacks) {
             return new Promise(
                 resolve => {
 
+                    let resolved =
+                        false;
+
+
+                    const finish =
+                        value => {
+
+                            if (resolved) return;
+
+                            resolved = true;
+
+                            resolve(value);
+
+                        };
+
+
                     new Dialog({
 
                         title:
                             "Grapple Defense",
 
                         content:
-                            `<p><strong>${actor.name}</strong> must choose a skill to resist the grapple.</p>`,
+                            `
+                                <p>
+                                    <strong>${actor.name}</strong>
+                                    must choose a skill to resist the grapple.
+                                </p>
+
+                                <p>
+                                    Choose Athletics or Acrobatics.
+                                </p>
+                            `,
 
                         buttons: {
 
@@ -644,7 +744,7 @@ if (globalThis.alternateAttacks) {
                                     "Athletics",
 
                                 callback:
-                                    () => resolve(
+                                    () => finish(
                                         "ath"
                                     )
 
@@ -656,7 +756,7 @@ if (globalThis.alternateAttacks) {
                                     "Acrobatics",
 
                                 callback:
-                                    () => resolve(
+                                    () => finish(
                                         "acr"
                                     )
 
@@ -668,7 +768,9 @@ if (globalThis.alternateAttacks) {
                             "athletics",
 
                         close:
-                            () => resolve(null)
+                            () => finish(
+                                null
+                            )
 
                     }).render(true);
 
@@ -679,10 +781,7 @@ if (globalThis.alternateAttacks) {
 
 
         // ========================================================
-        // APPLY GRAPPLED
-        //
-        // Uses the standard D&D 5e Grappled condition from
-        // CONFIG.DND5E.statusEffects.
+        // APPLY GRAPPLED CONDITION
         // ========================================================
 
         async applyGrappled(actor) {
@@ -691,42 +790,45 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // Find the standard Grappled condition.
-            // ----------------------------------------------------
-
-            const grappled =
-                CONFIG.DND5E?.conditionTypes
-                    ? Object.entries(
-                        CONFIG.DND5E.conditionTypes
-                    ).find(
-                        ([id, label]) =>
-                            String(id).toLowerCase() ===
-                            "grappled"
-                    )
-                    : null;
-
-
-            // ----------------------------------------------------
-            // Standard 5e condition ID.
+            // Standard D&D 5e condition ID.
             // ----------------------------------------------------
 
             const conditionId =
-                grappled?.[0] ??
                 "grappled";
 
 
             // ----------------------------------------------------
-            // If the actor already has Grappled, don't duplicate.
+            // Check existing effects/statuses.
             // ----------------------------------------------------
 
             const alreadyGrappled =
                 actor.effects?.some(
-                    effect =>
-                        effect.statuses?.has(
+                    effect => {
+
+                        if (
+                            effect.statuses?.has(
+                                conditionId
+                            )
+                        ) {
+
+                            return true;
+
+                        }
+
+
+                        if (
+                            effect.flags?.core?.statusId ===
                             conditionId
-                        ) ||
-                        effect.flags?.core?.statusId ===
-                            conditionId
+                        ) {
+
+                            return true;
+
+                        }
+
+
+                        return false;
+
+                    }
                 );
 
 
@@ -736,13 +838,14 @@ if (globalThis.alternateAttacks) {
                     "[ALTERNATE ATTACKS] Target already Grappled."
                 );
 
+
                 return;
 
             }
 
 
             // ----------------------------------------------------
-            // Use D&D 5e's built-in condition API when available.
+            // Preferred Foundry/D&D 5e method.
             // ----------------------------------------------------
 
             if (
@@ -753,8 +856,16 @@ if (globalThis.alternateAttacks) {
                 await actor.toggleStatusEffect(
                     conditionId,
                     {
-                        active: true
+                        active:
+                            true
                     }
+                );
+
+
+                console.log(
+                    "%c[ALTERNATE ATTACKS] GRAPPLED CONDITION APPLIED",
+                    "color: lime; font-weight: bold;",
+                    actor.name
                 );
 
 
@@ -764,7 +875,7 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // Fallback: create a core status effect.
+            // Fallback Active Effect.
             // ----------------------------------------------------
 
             await actor.createEmbeddedDocuments(
@@ -787,8 +898,16 @@ if (globalThis.alternateAttacks) {
                                             conditionId
                                     }
                             }
+
                     }
                 ]
+            );
+
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] GRAPPLED CONDITION APPLIED VIA FALLBACK",
+                "color: lime; font-weight: bold;",
+                actor.name
             );
 
         }
@@ -811,7 +930,7 @@ if (globalThis.alternateAttacks) {
 
 
     // ============================================================
-    // READY
+    // CONTROLLER READY
     // ============================================================
 
     console.log(
