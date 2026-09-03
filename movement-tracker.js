@@ -182,9 +182,8 @@ if (globalThis.movementTracker) {
             `${actor.name}: ${maximum} ft movement available.`
         );
 
-        globalThis.AECTrackerUI?.updateMovement(
-            0,
-            maximum
+        globalThis.AECTrackerUI?.updateMovementForActor(
+            actor
         );
 
     }
@@ -273,9 +272,8 @@ if (globalThis.movementTracker) {
         );
 
 
-        globalThis.AECTrackerUI?.updateMovement(
-            state.spent,
-            state.maximum
+        globalThis.AECTrackerUI?.updateMovementForActor(
+            actor
         );
 
 
@@ -347,9 +345,8 @@ if (globalThis.movementTracker) {
         // UPDATE UI
         // --------------------------------------------------------
 
-        globalThis.AECTrackerUI?.updateMovement(
-            state.spent,
-            state.maximum
+        globalThis.AECTrackerUI?.updateMovementForActor(
+            actor
         );
 
 
@@ -1012,13 +1009,6 @@ if (globalThis.movementTracker) {
 
 
             if (!actor) return;
-
-
-            // ------------------------------------------------
-            // GM BYPASS
-            // ------------------------------------------------
-
-            if (game.user.isGM) return;
 
 
             // ------------------------------------------------
