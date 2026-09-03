@@ -6,12 +6,18 @@
 // D&D 5e 5.3.3
 //
 // Handles:
+//
 //   • Grapple target size restriction
 //   • Athletics vs Athletics/Acrobatics contest
 //   • Grappled condition
 //   • Grapple relationship tracking
 //   • Contextual Escape Grapple prompt
 //   • Escape Grapple Athletics/Acrobatics contest
+//
+// IMPORTANT:
+// This file must load BEFORE action-economy.js so that the
+// preUseActivity interception occurs before Action Economy
+// reserves the Action.
 //
 // ============================================================
 
@@ -62,12 +68,16 @@ if (globalThis.alternateAttacks) {
 
             }
 
+
             globalThis.__aecAlternateAttacksInitialized =
                 true;
 
 
             // ----------------------------------------------------
-            // PRE-USE ACTIVITY
+            // IMPORTANT:
+            //
+            // This hook MUST be registered before the Action
+            // Economy controller's preUseActivity hook.
             // ----------------------------------------------------
 
             Hooks.on(
@@ -121,21 +131,17 @@ if (globalThis.alternateAttacks) {
         //
         // If a Grappled creature attempts to use an Action:
         //
-        //   1. Allow the normal hook chain to finish.
-        //   2. AEC may reserve the Action.
-        //   3. Cancel the original Action.
-        //   4. Show the Escape Grapple prompt.
+        //   1. Temporarily prevent AEC from consuming the Action.
+        //   2. Cancel the original Action.
+        //   3. Show the Escape Grapple prompt.
         //
         // YES:
-        //     Release AEC's temporary reservation.
         //     Consume Action for Escape Grapple.
         //
         // NO:
-        //     Release AEC's temporary reservation.
-        //     Re-fire the original Action.
+        //     Re-fire the original Action normally.
         //
         // CANCEL:
-        //     Release AEC's temporary reservation.
         //     Do nothing.
         //
         // Bonus Actions and Reactions are untouched.
@@ -193,37 +199,13 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // IMPORTANT:
-            //
-            // If the Action was already used before this activity
-            // was attempted, this is a normal Action Economy block.
-            //
-            // Do NOT show the Escape prompt.
-            // ----------------------------------------------------
-
-            const state =
-                globalThis.actionEconomy?.getState?.(
-                    actor
-                );
-
-
-            if (
-                state?.action
-            ) {
-
-                return true;
-
-            }
-
-
-            // ----------------------------------------------------
             // Find the creature currently grappling this actor.
             // ----------------------------------------------------
 
             const grappler =
                 this.getGrappler(
                     actor
-                );
+                 );
 
 
             if (!grappler) {
@@ -250,18 +232,60 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // Mark this activity as an intercepted grapple Action.
+            // IMPORTANT
             //
-            // We intentionally DO NOT modify the activity's
-            // activation type.
+            // Returning false from this hook does NOT prevent other
+            // preUseActivity listeners from executing.
             //
-            // AEC may reserve the Action during its own hook.
-            // We explicitly release that reservation once the
-            // prompt resolves.
+            // Therefore AEC would still see this Action and consume
+            // it before our Escape prompt finishes.
+            //
+            // Temporarily change the activity's activation type so
+            // AEC sees this particular intercepted use as a resource
+            // it does not track.
+            //
+            // The activity is already being cancelled, so the original
+            // activation type is restored immediately afterward.
             // ----------------------------------------------------
 
-            activity.__aecGrappleEscapeIntercepted =
-                true;
+            const originalActivationType =
+                activity.activation?.type;
+
+
+            if (
+                activity.activation
+            ) {
+
+                activity.activation.type =
+            "none";
+
+            }
+
+
+            // ----------------------------------------------------
+            // Restore the activity after the current hook chain has
+            // finished.
+            //
+            // This gives AEC a chance to inspect the modified type,
+            // while ensuring the activity itself is completely restored
+            // before any later use.
+            // ----------------------------------------------------
+
+            setTimeout(
+                () => {
+    
+                    if (
+                        activity.activation
+                    ) {
+
+                        activity.activation.type =
+                            originalActivationType;
+
+                    }
+    
+                },
+                0
+            );
 
 
             // ----------------------------------------------------
@@ -289,80 +313,7 @@ if (globalThis.alternateAttacks) {
 
             return false;
 
-        },
-
-
-        // ========================================================
-        // RELEASE INTERCEPTED ACTION
-        //
-        // AEC's preUseActivity hook may have reserved the Action
-        // before our prompt appears.
-        //
-        // This releases that temporary reservation so the chosen
-        // outcome can determine whether the Action is consumed.
-        // ========================================================
-
-        releaseInterceptedAction(
-            actor
-        ) {
-
-            if (!actor) {
-                return false;
-            }
-
-
-            const state =
-                globalThis.actionEconomy?.getState?.(
-                    actor
-                );
-
-
-            if (!state) {
-                return false;
-            }
-
-
-            if (
-                state.action
-            ) {
-
-                state.action =
-                    false;
-
-
-                console.log(
-                    "%c[ALTERNATE ATTACKS] RELEASED INTERCEPTED ACTION",
-                    "color: cyan; font-weight: bold;",
-                    actor.name
-                );
-
-
-                // ------------------------------------------------
-                // Keep HUD synchronized.
-                // ------------------------------------------------
-
-                setTimeout(
-                    () => {
-
-                        globalThis.actionEconomy?.syncHUD?.(
-                            actor,
-                            "action",
-                            false
-                        );
-
-                    },
-                    0
-                );
-
-
-                return true;
-
-            }
-
-
-            return false;
-
-        },
+},
 
 
         // ========================================================
@@ -395,17 +346,6 @@ if (globalThis.alternateAttacks) {
 
 
             // ====================================================
-            // RELEASE THE TEMPORARY AEC RESERVATION
-            //
-            // Do this BEFORE processing any of the three choices.
-            // ====================================================
-
-            this.releaseInterceptedAction(
-                actor
-            );
-
-
-            // ====================================================
             // CANCEL
             // ====================================================
 
@@ -416,6 +356,7 @@ if (globalThis.alternateAttacks) {
                 console.log(
                     "[ALTERNATE ATTACKS] Escape prompt cancelled."
                 );
+
 
                 return;
 
@@ -441,7 +382,6 @@ if (globalThis.alternateAttacks) {
                 try {
 
                     await activity.use({
-
                         ...usageConfig,
 
                         __aecSkipGrappleEscape:
@@ -494,6 +434,8 @@ if (globalThis.alternateAttacks) {
 
         // ========================================================
         // ESCAPE PROMPT
+        //
+        // YES / NO / CANCEL
         // ========================================================
 
         async chooseEscapeAction(
@@ -532,7 +474,6 @@ if (globalThis.alternateAttacks) {
                         title:
                             "Grappled",
 
-
                         content:
                             `
                                 <p>
@@ -546,7 +487,6 @@ if (globalThis.alternateAttacks) {
                                     the grapple?
                                 </p>
                             `,
-
 
                         buttons: {
 
@@ -562,7 +502,6 @@ if (globalThis.alternateAttacks) {
 
                             },
 
-
                             no: {
 
                                 label:
@@ -574,7 +513,6 @@ if (globalThis.alternateAttacks) {
                                     )
 
                             },
-
 
                             cancel: {
 
@@ -590,10 +528,8 @@ if (globalThis.alternateAttacks) {
 
                         },
 
-
                         default:
                             "yes",
-
 
                         close:
                             () => finish(
@@ -637,10 +573,40 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // The intercepted Action was released immediately
-            // before this function was called.
+            // Confirm Action is available.
             //
-            // Now consume it specifically for Escape Grapple.
+            // Because this module intercepted BEFORE the core
+            // Action Economy hook, the Action should still be
+            // unused here.
+            // ----------------------------------------------------
+
+            const state =
+                globalThis.actionEconomy?.getState?.(
+                    actor
+                );
+
+
+            if (
+                state?.action
+            ) {
+
+                ui.notifications.warn(
+                    `${actor.name} has already used their Action.`
+                );
+
+
+                console.warn(
+                    "[ALTERNATE ATTACKS] Escape blocked — Action already used."
+                );
+
+
+                return;
+
+            }
+
+
+            // ----------------------------------------------------
+            // Consume Action.
             // ----------------------------------------------------
 
             const actionUsed =
@@ -656,11 +622,6 @@ if (globalThis.alternateAttacks) {
 
                 ui.notifications.warn(
                     `${actor.name} cannot use an Action right now.`
-                );
-
-
-                console.warn(
-                    "[ALTERNATE ATTACKS] Escape blocked — Action could not be consumed."
                 );
 
 
@@ -692,6 +653,7 @@ if (globalThis.alternateAttacks) {
                     "[ALTERNATE ATTACKS] Escape skill selection cancelled."
                 );
 
+
                 return;
 
             }
@@ -714,6 +676,7 @@ if (globalThis.alternateAttacks) {
                 console.warn(
                     "[ALTERNATE ATTACKS] Escape roll failed."
                 );
+
 
                 return;
 
@@ -738,13 +701,14 @@ if (globalThis.alternateAttacks) {
                     "[ALTERNATE ATTACKS] Grappler Athletics roll failed."
                 );
 
+
                 return;
 
             }
 
 
             // ----------------------------------------------------
-            // COMPARE RESULTS
+            // COMPARE
             //
             // Escaping creature must EXCEED the grappler.
             // A tie fails.
@@ -882,7 +846,6 @@ if (globalThis.alternateAttacks) {
                         title:
                             "Escape Grapple",
 
-
                         content:
                             `
                                 <p>
@@ -894,7 +857,6 @@ if (globalThis.alternateAttacks) {
                                     Choose Athletics or Acrobatics.
                                 </p>
                             `,
-
 
                         buttons: {
 
@@ -910,7 +872,6 @@ if (globalThis.alternateAttacks) {
 
                             },
 
-
                             acrobatics: {
 
                                 label:
@@ -925,10 +886,8 @@ if (globalThis.alternateAttacks) {
 
                         },
 
-
                         default:
                             "athletics",
-
 
                         close:
                             () => finish(
@@ -1127,6 +1086,7 @@ if (globalThis.alternateAttacks) {
                     "[ALTERNATE ATTACKS] Grappler Athletics roll failed."
                 );
 
+
                 return;
 
             }
@@ -1148,6 +1108,7 @@ if (globalThis.alternateAttacks) {
                     "[ALTERNATE ATTACKS] Grapple defense selection cancelled."
                 );
 
+
                 return;
 
             }
@@ -1166,6 +1127,7 @@ if (globalThis.alternateAttacks) {
                 console.warn(
                     "[ALTERNATE ATTACKS] Grapple defense roll failed."
                 );
+
 
                 return;
 
@@ -1734,7 +1696,6 @@ if (globalThis.alternateAttacks) {
                         title:
                             "Grapple Defense",
 
-
                         content:
                             `
                                 <p>
@@ -1746,7 +1707,6 @@ if (globalThis.alternateAttacks) {
                                     Choose Athletics or Acrobatics.
                                 </p>
                             `,
-
 
                         buttons: {
 
@@ -1762,7 +1722,6 @@ if (globalThis.alternateAttacks) {
 
                             },
 
-
                             acrobatics: {
 
                                 label:
@@ -1777,10 +1736,8 @@ if (globalThis.alternateAttacks) {
 
                         },
 
-
                         default:
                             "athletics",
-
 
                         close:
                             () => finish(
@@ -2047,16 +2004,16 @@ if (globalThis.alternateAttacks) {
 
     // ============================================================
     // INITIALIZE
+    //
+    // IMPORTANT: This runs immediately (NOT on Hooks.once("ready"))
+    // because Action Economy Controller (action-economy.js)
+    // registers its own dnd5e.preUseActivity listener immediately
+    // at load too. Since module.json loads this file before
+    // action-economy.js, calling init() here immediately guarantees
+    // our listener registers — and therefore runs — first.
     // ============================================================
 
-    Hooks.once(
-        "ready",
-        () => {
-
-            globalThis.alternateAttacks.init();
-
-        }
-    );
+    globalThis.alternateAttacks.init();
 
 
     console.log(
