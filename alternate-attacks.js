@@ -129,22 +129,20 @@ if (globalThis.alternateAttacks) {
         // ========================================================
         // PRE-USE ACTIVITY
         //
-        // This is the critical interception.
+        // If a Grappled creature attempts to use an Action:
         //
-        // If a grappled creature attempts to use an Action:
-        //
-        //     1. Stop the original Action.
-        //     2. Ask whether they want to escape.
+        //   1. Temporarily prevent AEC from consuming the Action.
+        //   2. Cancel the original Action.
+        //   3. Show the Escape Grapple prompt.
         //
         // YES:
-        //     Original Action stays cancelled.
-        //     Escape Grapple begins.
+        //     Consume Action for Escape Grapple.
         //
         // NO:
-        //     Original Action is allowed to continue.
+        //     Re-fire the original Action normally.
         //
         // CANCEL:
-        //     Original Action stays cancelled.
+        //     Do nothing.
         //
         // Bonus Actions and Reactions are untouched.
         // ========================================================
@@ -182,7 +180,7 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // ONLY ACTIONS can trigger Escape Grapple.
+            // Only Actions can trigger Escape Grapple.
             // ----------------------------------------------------
 
             const resource =
@@ -207,7 +205,7 @@ if (globalThis.alternateAttacks) {
             const grappler =
                 this.getGrappler(
                     actor
-                );
+                 );
 
 
             if (!grappler) {
@@ -216,16 +214,6 @@ if (globalThis.alternateAttacks) {
 
             }
 
-
-            // ----------------------------------------------------
-            // We intentionally DO NOT check whether the Action
-            // has already been consumed here.
-            //
-            // This hook must run BEFORE action-economy.js.
-            //
-            // If the Action is available, we intercept it before
-            // Action Economy gets a chance to reserve it.
-            // ----------------------------------------------------
 
             console.log(
                 "%c[ALTERNATE ATTACKS] GRAPPLED ACTION INTERCEPTED",
@@ -244,11 +232,64 @@ if (globalThis.alternateAttacks) {
 
 
             // ----------------------------------------------------
-            // Open the prompt asynchronously.
+            // IMPORTANT
             //
-            // preUseActivity itself must return synchronously.
-            // Returning false immediately prevents the original
-            // Action from executing.
+            // Returning false from this hook does NOT prevent other
+            // preUseActivity listeners from executing.
+            //
+            // Therefore AEC would still see this Action and consume
+            // it before our Escape prompt finishes.
+            //
+            // Temporarily change the activity's activation type so
+            // AEC sees this particular intercepted use as a resource
+            // it does not track.
+            //
+            // The activity is already being cancelled, so the original
+            // activation type is restored immediately afterward.
+            // ----------------------------------------------------
+
+            const originalActivationType =
+                activity.activation?.type;
+
+
+            if (
+                activity.activation
+            ) {
+
+                activity.activation.type =
+            "none";
+
+            }
+
+
+            // ----------------------------------------------------
+            // Restore the activity after the current hook chain has
+            // finished.
+            //
+            // This gives AEC a chance to inspect the modified type,
+            // while ensuring the activity itself is completely restored
+            // before any later use.
+            // ----------------------------------------------------
+
+            setTimeout(
+                () => {
+    
+                    if (
+                        activity.activation
+                    ) {
+
+                        activity.activation.type =
+                            originalActivationType;
+
+                    }
+    
+                },
+                0
+            );
+
+
+            // ----------------------------------------------------
+            // Open the prompt after the current hook chain completes.
             // ----------------------------------------------------
 
             setTimeout(
@@ -266,9 +307,13 @@ if (globalThis.alternateAttacks) {
             );
 
 
+            // ----------------------------------------------------
+            // Cancel the original Action.
+            // ----------------------------------------------------
+
             return false;
 
-        },
+},
 
 
         // ========================================================
