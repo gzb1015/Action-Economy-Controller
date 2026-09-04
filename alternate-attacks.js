@@ -76,104 +76,86 @@ if (globalThis.alternateAttacks) {
         },
 
         // ========================================================
-        // SOCKETLIB
-        // ========================================================
+// SOCKETLIB
+// ========================================================
 
-        initSocket() {
+initSocket() {
 
-            if (!globalThis.socketlib) {
+    if (!globalThis.socketlib) {
 
-                console.warn(
-                    "[ALTERNATE ATTACKS] socketlib not available."
-                );
+        console.warn(
+            "[ALTERNATE ATTACKS] socketlib not available."
+        );
 
-                return;
+        return;
 
-            }
+    }
 
-            // Prevent duplicate registration.
-            if (this.socketReady && this.socket) {
+    if (this.socketReady && this.socket) {
 
-                console.log(
-                    "[ALTERNATE ATTACKS] socketlib already initialized."
-                );
+        console.log(
+            "[ALTERNATE ATTACKS] socketlib already initialized."
+        );
 
-                return;
+        return;
 
-            }
+    }
 
-            const registerSocket = () => {
+    try {
 
-                // Prevent duplicate registration if the callback
-                // somehow runs more than once.
-                if (this.socketReady && this.socket) return;
+        console.log(
+            "[ALTERNATE ATTACKS] Registering socketlib..."
+        );
 
-                try {
+        this.socket = socketlib.registerModule(
+            "action-economy-controller"
+        );
 
-                    this.socket = socketlib.registerModule(
-                        "action-economy-controller"
-                    );
-        
-                    this.socket.register(
-                        "chooseGrappleSkill",
-                        this._socketChooseGrappleSkill.bind(this)
-                    );
+        this.socket.register(
+            "chooseGrappleSkill",
+            this._socketChooseGrappleSkill.bind(this)
+        );
 
-                    this.socket.register(
-                        "applyGrappled",
-                        this._socketApplyGrappled.bind(this)
-                    );
+        this.socket.register(
+            "applyGrappled",
+            this._socketApplyGrappled.bind(this)
+        );
 
-                    this.socket.register(
-                        "removeGrappled",
-                        this._socketRemoveGrappled.bind(this)
-                    );
+        this.socket.register(
+            "removeGrappled",
+            this._socketRemoveGrappled.bind(this)
+        );
 
-                    this.socket.register(
-                        "setGrappleRelationship",
-                        this._socketSetGrappleRelationship.bind(this)
-                    );
+        this.socket.register(
+            "setGrappleRelationship",
+            this._socketSetGrappleRelationship.bind(this)
+        );
 
-                    this.socket.register(
-                        "clearGrappleRelationship",
-                        this._socketClearGrappleRelationship.bind(this)
-                    );
+        this.socket.register(
+            "clearGrappleRelationship",
+            this._socketClearGrappleRelationship.bind(this)
+        );
 
-                    this.socketReady = true;
+        this.socketReady = true;
 
-                    console.log(
-                        "%c[ALTERNATE ATTACKS] socketlib ready.",
-                        "color: lime; font-weight: bold;"
-                    );
+        console.log(
+            "%c[ALTERNATE ATTACKS] socketlib ready.",
+            "color: lime; font-weight: bold;"
+        );
 
-                } catch (error) {
+    } catch (error) {
 
-                    console.error(
-                        "[ALTERNATE ATTACKS] Failed to initialize socketlib:",
-                        error
-                    );
+        console.error(
+            "[ALTERNATE ATTACKS] Failed to initialize socketlib:",
+            error
+        );
 
-                    this.socket = null;
-                    this.socketReady = false;
+        this.socket = null;
+        this.socketReady = false;
 
-                }
+    }
 
-            };
-
-            // If socketlib is already ready, initialize immediately.
-            if (socketlib.ready) {
-        
-                registerSocket();
-
-            } else {
-
-                // Otherwise wait for the ready hook.
-                Hooks.once("socketlib.ready", registerSocket);
-
-            }
-
-        },
-
+},
         // ========================================================
         // SOCKET: RELATIONSHIP SYNCHRONIZATION
         // ========================================================
