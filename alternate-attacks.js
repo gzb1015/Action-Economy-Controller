@@ -38,8 +38,13 @@ if (globalThis.alternateAttacks) {
         init() {
 
             if (globalThis.__aecAlternateAttacksInitialized) {
-                console.warn("[ALTERNATE ATTACKS] Already initialized.");
+
+                console.warn(
+                    "[ALTERNATE ATTACKS] Already initialized."
+                );
+
                 return;
+
             }
 
             globalThis.__aecAlternateAttacksInitialized = true;
@@ -49,7 +54,10 @@ if (globalThis.alternateAttacks) {
             Hooks.on(
                 "dnd5e.preUseActivity",
                 (activity, usageConfig) =>
-                    this.handlePreUseActivity(activity, usageConfig)
+                    this.handlePreUseActivity(
+                        activity,
+                        usageConfig
+                    )
             );
 
             Hooks.on(
@@ -65,7 +73,10 @@ if (globalThis.alternateAttacks) {
             Hooks.on(
                 "moveToken",
                 (tokenDoc, movement) =>
-                    this.handleGrapplerMoved(tokenDoc, movement)
+                    this.handleGrapplerMoved(
+                        tokenDoc,
+                        movement
+                    )
             );
 
             console.log(
@@ -76,97 +87,162 @@ if (globalThis.alternateAttacks) {
         },
 
         // ========================================================
-// SOCKETLIB
-// ========================================================
+        // SOCKETLIB
+        // ========================================================
 
-initSocket() {
+        initSocket() {
 
-    if (!globalThis.socketlib) {
+            if (this.socketReady && this.socket) {
 
-        console.warn(
-            "[ALTERNATE ATTACKS] socketlib not available."
-        );
+                console.log(
+                    "[ALTERNATE ATTACKS] socketlib already initialized."
+                );
 
-        return;
+                return;
 
-    }
+            }
 
-    if (this.socketReady && this.socket) {
+            // ----------------------------------------------------
+            // Socketlib is already available.
+            // Register immediately.
+            // ----------------------------------------------------
 
-        console.log(
-            "[ALTERNATE ATTACKS] socketlib already initialized."
-        );
+            if (globalThis.socketlib) {
 
-        return;
+                this._registerSocketlib();
 
-    }
+                return;
 
-    try {
+            }
 
-        console.log(
-            "[ALTERNATE ATTACKS] Registering socketlib..."
-        );
+            // ----------------------------------------------------
+            // Socketlib is not available yet.
+            // Wait for its ready hook.
+            // ----------------------------------------------------
 
-        this.socket = socketlib.registerModule(
-            "action-economy-controller"
-        );
+            console.warn(
+                "[ALTERNATE ATTACKS] socketlib not available yet; waiting for socketlib.ready..."
+            );
 
-        this.socket.register(
-            "chooseGrappleSkill",
-            this._socketChooseGrappleSkill.bind(this)
-        );
+            Hooks.once(
+                "socketlib.ready",
+                () => this._registerSocketlib()
+            );
 
-        this.socket.register(
-            "applyGrappled",
-            this._socketApplyGrappled.bind(this)
-        );
+        },
 
-        this.socket.register(
-            "removeGrappled",
-            this._socketRemoveGrappled.bind(this)
-        );
+        _registerSocketlib() {
 
-        this.socket.register(
-            "setGrappleRelationship",
-            this._socketSetGrappleRelationship.bind(this)
-        );
+            if (this.socketReady && this.socket) {
 
-        this.socket.register(
-            "clearGrappleRelationship",
-            this._socketClearGrappleRelationship.bind(this)
-        );
+                return;
 
-        this.socketReady = true;
+            }
 
-        console.log(
-            "%c[ALTERNATE ATTACKS] socketlib ready.",
-            "color: lime; font-weight: bold;"
-        );
+            if (!globalThis.socketlib) {
 
-    } catch (error) {
+                console.error(
+                    "[ALTERNATE ATTACKS] socketlib.ready fired but socketlib is still unavailable."
+                );
 
-        console.error(
-            "[ALTERNATE ATTACKS] Failed to initialize socketlib:",
-            error
-        );
+                return;
 
-        this.socket = null;
-        this.socketReady = false;
+            }
 
-    }
+            try {
 
-},
+                console.log(
+                    "[ALTERNATE ATTACKS] Registering socketlib..."
+                );
+
+                const socket =
+                    globalThis.socketlib.registerModule(
+                        "action-economy-controller"
+                    );
+
+                if (!socket) {
+
+                    console.error(
+                        "[ALTERNATE ATTACKS] socketlib.registerModule() returned undefined."
+                    );
+
+                    this.socket = null;
+                    this.socketReady = false;
+
+                    return;
+
+                }
+
+                this.socket = socket;
+
+                // ------------------------------------------------
+                // Register socket functions.
+                // ------------------------------------------------
+
+                this.socket.register(
+                    "chooseGrappleSkill",
+                    this._socketChooseGrappleSkill.bind(this)
+                );
+
+                this.socket.register(
+                    "applyGrappled",
+                    this._socketApplyGrappled.bind(this)
+                );
+
+                this.socket.register(
+                    "removeGrappled",
+                    this._socketRemoveGrappled.bind(this)
+                );
+
+                this.socket.register(
+                    "setGrappleRelationship",
+                    this._socketSetGrappleRelationship.bind(this)
+                );
+
+                this.socket.register(
+                    "clearGrappleRelationship",
+                    this._socketClearGrappleRelationship.bind(this)
+                );
+
+                this.socketReady = true;
+
+                console.log(
+                    "%c[ALTERNATE ATTACKS] socketlib ready.",
+                    "color: lime; font-weight: bold;"
+                );
+
+            } catch (error) {
+
+                console.error(
+                    "[ALTERNATE ATTACKS] Failed to initialize socketlib:",
+                    error
+                );
+
+                this.socket = null;
+                this.socketReady = false;
+
+            }
+
+        },
+
         // ========================================================
         // SOCKET: RELATIONSHIP SYNCHRONIZATION
         // ========================================================
 
-        async syncGrappleRelationship(grappler, target) {
+        async syncGrappleRelationship(
+            grappler,
+            target
+        ) {
 
             if (!grappler || !target) return;
 
-            if (!this.socketReady) {
+            if (!this.socketReady || !this.socket) {
 
-                this.addGrappleRelationship(grappler, target);
+                this.addGrappleRelationship(
+                    grappler,
+                    target
+                );
+
                 return;
 
             }
@@ -184,22 +260,35 @@ initSocket() {
             targetId
         ) {
 
-            const grappler = game.actors.get(grapplerId);
-            const target = game.actors.get(targetId);
+            const grappler =
+                game.actors.get(grapplerId);
+
+            const target =
+                game.actors.get(targetId);
 
             if (!grappler || !target) return;
 
-            this.addGrappleRelationship(grappler, target);
+            this.addGrappleRelationship(
+                grappler,
+                target
+            );
 
         },
 
-        async syncClearGrappleRelationship(grappler, target) {
+        async syncClearGrappleRelationship(
+            grappler,
+            target
+        ) {
 
             if (!grappler || !target) return;
 
-            if (!this.socketReady) {
+            if (!this.socketReady || !this.socket) {
 
-                this.removeGrappleRelationship(grappler, target);
+                this.removeGrappleRelationship(
+                    grappler,
+                    target
+                );
+
                 return;
 
             }
@@ -217,12 +306,18 @@ initSocket() {
             targetId
         ) {
 
-            const grappler = game.actors.get(grapplerId);
-            const target = game.actors.get(targetId);
+            const grappler =
+                game.actors.get(grapplerId);
+
+            const target =
+                game.actors.get(targetId);
 
             if (!grappler || !target) return;
 
-            this.removeGrappleRelationship(grappler, target);
+            this.removeGrappleRelationship(
+                grappler,
+                target
+            );
 
         },
 
@@ -230,25 +325,34 @@ initSocket() {
         // SOCKET: TARGET SKILL CHOICE
         // ========================================================
 
-        async requestTargetSkillChoice(actor, options = {}) {
+        async requestTargetSkillChoice(
+            actor,
+            options = {}
+        ) {
 
             if (!actor) return null;
 
-            const ownerUser = game.users.find(user =>
-                user.active &&
-                !user.isGM &&
-                actor.testUserPermission(
-                    user,
-                    CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER
-                )
-            );
+            const ownerUser =
+                game.users.find(user =>
+                    user.active &&
+                    !user.isGM &&
+                    actor.testUserPermission(
+                        user,
+                        CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER
+                    )
+                );
 
             const userId = ownerUser?.id;
 
             if (!userId) {
 
                 if (game.user.isGM) {
-                    return this.chooseSkill(actor, options);
+
+                    return this.chooseSkill(
+                        actor,
+                        options
+                    );
+
                 }
 
                 return null;
@@ -256,10 +360,15 @@ initSocket() {
             }
 
             if (userId === game.user.id) {
-                return this.chooseSkill(actor, options);
+
+                return this.chooseSkill(
+                    actor,
+                    options
+                );
+
             }
 
-            if (!this.socketReady) {
+            if (!this.socketReady || !this.socket) {
 
                 ui.notifications.error(
                     "Grapple system is not ready. Please try again."
@@ -278,13 +387,20 @@ initSocket() {
 
         },
 
-        async _socketChooseGrappleSkill(actorId, options = {}) {
+        async _socketChooseGrappleSkill(
+            actorId,
+            options = {}
+        ) {
 
-            const actor = game.actors.get(actorId);
+            const actor =
+                game.actors.get(actorId);
 
             if (!actor) return null;
 
-            return this.chooseSkill(actor, options);
+            return this.chooseSkill(
+                actor,
+                options
+            );
 
         },
 
@@ -299,11 +415,12 @@ initSocket() {
             if (game.user.isGM) {
 
                 await this.applyGrappled(actor);
+
                 return true;
 
             }
 
-            if (!this.socketReady) {
+            if (!this.socketReady || !this.socket) {
 
                 ui.notifications.error(
                     "Grapple system is not ready. Please try again."
@@ -322,7 +439,8 @@ initSocket() {
 
         async _socketApplyGrappled(actorId) {
 
-            const actor = game.actors.get(actorId);
+            const actor =
+                game.actors.get(actorId);
 
             if (!actor) return false;
 
@@ -339,11 +457,14 @@ initSocket() {
             if (game.user.isGM) {
 
                 await this.removeGrappled(actor);
+
                 return true;
 
             }
 
-            if (!this.socketReady) return false;
+            if (!this.socketReady || !this.socket) {
+                return false;
+            }
 
             return this.socket.executeAsGM(
                 "removeGrappled",
@@ -354,7 +475,8 @@ initSocket() {
 
         async _socketRemoveGrappled(actorId) {
 
-            const actor = game.actors.get(actorId);
+            const actor =
+                game.actors.get(actorId);
 
             if (!actor) return false;
 
@@ -372,13 +494,19 @@ initSocket() {
 
             if (!activity) return false;
 
-            const activityName = String(
-                activity.name ?? ""
-            ).trim().toLowerCase();
+            const activityName =
+                String(
+                    activity.name ?? ""
+                )
+                    .trim()
+                    .toLowerCase();
 
-            const itemName = String(
-                activity.item?.name ?? ""
-            ).trim().toLowerCase();
+            const itemName =
+                String(
+                    activity.item?.name ?? ""
+                )
+                    .trim()
+                    .toLowerCase();
 
             return (
                 activityName.includes("grapple") ||
@@ -399,7 +527,8 @@ initSocket() {
                 return false;
             }
 
-            const target = this.getGrappledTarget(actor);
+            const target =
+                this.getGrappledTarget(actor);
 
             if (!target) {
 
@@ -415,9 +544,10 @@ initSocket() {
 
             try {
 
-                const removed = await this.requestRemoveGrappled(
-                    target
-                );
+                const removed =
+                    await this.requestRemoveGrappled(
+                        target
+                    );
 
                 if (removed === false) {
 
@@ -466,9 +596,12 @@ initSocket() {
             results
         ) {
 
-            if (!this.isGrappleActivity(activity)) return;
+            if (!this.isGrappleActivity(activity)) {
+                return;
+            }
 
-            const actor = activity.actor;
+            const actor =
+                activity.actor;
 
             if (!actor) {
 
@@ -486,11 +619,12 @@ initSocket() {
                 actor.name
             );
 
-            const target = this.getTarget(
-                usageConfig,
-                results,
-                activity
-            );
+            const target =
+                this.getTarget(
+                    usageConfig,
+                    results,
+                    activity
+                );
 
             if (!target) {
 
@@ -502,7 +636,8 @@ initSocket() {
 
             }
 
-            const targetActor = target.actor;
+            const targetActor =
+                target.actor;
 
             if (!targetActor) {
 
@@ -514,7 +649,12 @@ initSocket() {
 
             }
 
-            if (!this.canGrappleTarget(actor, targetActor)) {
+            if (
+                !this.canGrappleTarget(
+                    actor,
+                    targetActor
+                )
+            ) {
 
                 ui.notifications.warn(
                     `${target.name} is too large to grapple.`
@@ -524,44 +664,49 @@ initSocket() {
 
             }
 
-            const attackerRoll = await this.rollSkill(
-                actor,
-                "ath",
-                "Grapple — Athletics"
-            );
+            const attackerRoll =
+                await this.rollSkill(
+                    actor,
+                    "ath",
+                    "Grapple — Athletics"
+                );
 
             if (!attackerRoll) return;
 
-            const targetSkill = await this.requestTargetSkillChoice(
-                targetActor,
-                {
-                    title: "Grapple Defense",
-                    prompt:
-                        "must choose a skill to resist the grapple."
-                }
-            );
+            const targetSkill =
+                await this.requestTargetSkillChoice(
+                    targetActor,
+                    {
+                        title: "Grapple Defense",
+                        prompt:
+                            "must choose a skill to resist the grapple."
+                    }
+                );
 
             if (!targetSkill) return;
 
-            const targetRoll = await this.rollSkill(
-                targetActor,
-                targetSkill,
-                `Grapple — ${
-                    targetSkill === "ath"
-                        ? "Athletics"
-                        : "Acrobatics"
-                }`
-            );
+            const targetRoll =
+                await this.rollSkill(
+                    targetActor,
+                    targetSkill,
+                    `Grapple — ${
+                        targetSkill === "ath"
+                            ? "Athletics"
+                            : "Acrobatics"
+                    }`
+                );
 
             if (!targetRoll) return;
 
-            const attackerTotal = Number(
-                attackerRoll.total ?? 0
-            );
+            const attackerTotal =
+                Number(
+                    attackerRoll.total ?? 0
+                );
 
-            const targetTotal = Number(
-                targetRoll.total ?? 0
-            );
+            const targetTotal =
+                Number(
+                    targetRoll.total ?? 0
+                );
 
             console.log(
                 "%c[ALTERNATE ATTACKS] GRAPPLE CONTEST",
@@ -574,9 +719,10 @@ initSocket() {
 
             if (attackerTotal > targetTotal) {
 
-                const applied = await this.requestApplyGrappled(
-                    targetActor
-                );
+                const applied =
+                    await this.requestApplyGrappled(
+                        targetActor
+                    );
 
                 if (applied === false) {
 
@@ -627,33 +773,61 @@ initSocket() {
         // GET TARGET
         // ========================================================
 
-        getTarget(usageConfig, results, activity) {
+        getTarget(
+            usageConfig,
+            results,
+            activity
+        ) {
 
             const workflow =
                 results?.workflow ??
                 usageConfig?.workflow;
 
             if (workflow?.targets?.size) {
-                return workflow.targets.values().next().value;
+
+                return workflow.targets
+                    .values()
+                    .next()
+                    .value;
+
             }
 
             if (usageConfig?.targets?.size) {
-                return usageConfig.targets.values().next().value;
+
+                return usageConfig.targets
+                    .values()
+                    .next()
+                    .value;
+
             }
 
-            if (usageConfig?.targets instanceof Set) {
-                return usageConfig.targets.values().next().value;
+            if (
+                usageConfig?.targets instanceof Set
+            ) {
+
+                return usageConfig.targets
+                    .values()
+                    .next()
+                    .value;
+
             }
 
-            const activityTargets = activity?.targets;
+            const activityTargets =
+                activity?.targets;
 
             if (activityTargets?.size) {
-                return activityTargets.values().next().value;
+
+                return activityTargets
+                    .values()
+                    .next()
+                    .value;
+
             }
 
-            const controlledTargets = Array.from(
-                game.user?.targets ?? []
-            );
+            const controlledTargets =
+                Array.from(
+                    game.user?.targets ?? []
+                );
 
             if (controlledTargets.length === 1) {
                 return controlledTargets[0];
@@ -667,10 +841,16 @@ initSocket() {
         // SIZE CHECK
         // ========================================================
 
-        canGrappleTarget(actor, targetActor) {
+        canGrappleTarget(
+            actor,
+            targetActor
+        ) {
 
-            const attackerSize = this.getSizeIndex(actor);
-            const targetSize = this.getSizeIndex(targetActor);
+            const attackerSize =
+                this.getSizeIndex(actor);
+
+            const targetSize =
+                this.getSizeIndex(targetActor);
 
             if (
                 attackerSize === null ||
@@ -685,13 +865,16 @@ initSocket() {
 
             }
 
-            return targetSize <= attackerSize + 1;
+            return (
+                targetSize <= attackerSize + 1
+            );
 
         },
 
         getSizeIndex(actor) {
 
-            const size = actor?.system?.traits?.size;
+            const size =
+                actor?.system?.traits?.size;
 
             if (!size) return null;
 
@@ -704,13 +887,17 @@ initSocket() {
                 "grg"
             ];
 
-            const normalized = String(size)
-                .trim()
-                .toLowerCase();
+            const normalized =
+                String(size)
+                    .trim()
+                    .toLowerCase();
 
-            const index = sizes.indexOf(normalized);
+            const index =
+                sizes.indexOf(normalized);
 
-            return index >= 0 ? index : null;
+            return index >= 0
+                ? index
+                : null;
 
         },
 
@@ -718,49 +905,69 @@ initSocket() {
         // ESCAPE INTERCEPTION
         // ========================================================
 
-        handlePreUseActivity(activity, usageConfig) {
+        handlePreUseActivity(
+            activity,
+            usageConfig
+        ) {
 
             if (!activity) return true;
 
-            const actor = activity.actor;
+            const actor =
+                activity.actor;
 
             if (!actor) return true;
 
+            // ----------------------------------------------------
             // The Grapple feature ends an existing grapple for free.
             // Return false immediately so Action Economy cannot
             // reserve the Action before cleanup finishes.
+            // ----------------------------------------------------
 
             if (
                 this.isGrappleActivity(activity) &&
                 this.grapplers.has(actor.id)
             ) {
 
-                this.endGrapple(actor).catch(error => {
+                this.endGrapple(actor)
+                    .catch(error => {
 
-                    console.error(
-                        "[ALTERNATE ATTACKS] Failed to end grapple:",
-                        error
-                    );
+                        console.error(
+                            "[ALTERNATE ATTACKS] Failed to end grapple:",
+                            error
+                        );
 
-                });
+                    });
 
                 return false;
 
             }
 
+            // ----------------------------------------------------
             // Allow the original Action to be re-fired after the
             // player chooses "Use Action" in the escape prompt.
+            // ----------------------------------------------------
 
-            if (usageConfig?.__aecSkipGrappleEscape) {
+            if (
+                usageConfig?.__aecSkipGrappleEscape
+            ) {
+
                 return true;
+
             }
 
             const resource =
-                globalThis.actionEconomy?.getResource?.(activity);
+                globalThis.actionEconomy
+                    ?.getResource
+                    ?.(
+                        activity
+                    );
 
-            if (resource !== "action") return true;
+            if (resource !== "action") {
+                return true;
+            }
 
-            const grappler = this.getGrappler(actor);
+            const grappler =
+                this.getGrappler(actor);
 
             if (!grappler) return true;
 
@@ -778,14 +985,19 @@ initSocket() {
                 activity.activation?.type;
 
             if (activity.activation) {
-                activity.activation.type = "none";
+
+                activity.activation.type =
+                    "none";
+
             }
 
             setTimeout(() => {
 
                 if (activity.activation) {
+
                     activity.activation.type =
                         originalActivationType;
+
                 }
 
             }, 0);
@@ -816,12 +1028,19 @@ initSocket() {
             usageConfig
         ) {
 
-            if (!actor || !grappler || !activity) return;
+            if (
+                !actor ||
+                !grappler ||
+                !activity
+            ) {
+                return;
+            }
 
-            const choice = await this.chooseEscapeAction(
-                actor,
-                grappler
-            );
+            const choice =
+                await this.chooseEscapeAction(
+                    actor,
+                    grappler
+                );
 
             if (choice === "cancel") {
 
@@ -879,7 +1098,10 @@ initSocket() {
 
         },
 
-        async chooseEscapeAction(actor, grappler) {
+        async chooseEscapeAction(
+            actor,
+            grappler
+        ) {
 
             return new Promise(resolve => {
 
@@ -911,25 +1133,40 @@ initSocket() {
                     buttons: {
 
                         yes: {
-                            label: "Yes — Escape Grapple",
-                            callback: () => finish("escape")
+
+                            label:
+                                "Yes — Escape Grapple",
+
+                            callback: () =>
+                                finish("escape")
+
                         },
 
                         no: {
-                            label: "No — Use Action",
-                            callback: () => finish("action")
+
+                            label:
+                                "No — Use Action",
+
+                            callback: () =>
+                                finish("action")
+
                         },
 
                         cancel: {
+
                             label: "Cancel",
-                            callback: () => finish("cancel")
+
+                            callback: () =>
+                                finish("cancel")
+
                         }
 
                     },
 
                     default: "yes",
 
-                    close: () => finish("cancel")
+                    close: () =>
+                        finish("cancel")
 
                 }).render(true);
 
@@ -941,7 +1178,10 @@ initSocket() {
         // ESCAPE GRAPPLE
         // ========================================================
 
-        async handleEscapeGrapple(actor, grappler) {
+        async handleEscapeGrapple(
+            actor,
+            grappler
+        ) {
 
             if (!actor || !grappler) return;
 
@@ -954,7 +1194,11 @@ initSocket() {
             );
 
             const state =
-                globalThis.actionEconomy?.getState?.(actor);
+                globalThis.actionEconomy
+                    ?.getState
+                    ?.(
+                        actor
+                    );
 
             if (state?.action) {
 
@@ -971,10 +1215,12 @@ initSocket() {
             }
 
             const actionUsed =
-                globalThis.actionEconomy?.use?.(
-                    actor,
-                    "action"
-                );
+                globalThis.actionEconomy
+                    ?.use
+                    ?.(
+                        actor,
+                        "action"
+                    );
 
             if (actionUsed === false) {
 
@@ -986,14 +1232,15 @@ initSocket() {
 
             }
 
-            const escapeSkill = await this.chooseSkill(
-                actor,
-                {
-                    title: "Escape Grapple",
-                    prompt:
-                        "must choose a skill to escape the grapple."
-                }
-            );
+            const escapeSkill =
+                await this.chooseSkill(
+                    actor,
+                    {
+                        title: "Escape Grapple",
+                        prompt:
+                            "must choose a skill to escape the grapple."
+                    }
+                );
 
             if (!escapeSkill) {
 
@@ -1005,33 +1252,37 @@ initSocket() {
 
             }
 
-            const escapeRoll = await this.rollSkill(
-                actor,
-                escapeSkill,
-                `Escape Grapple — ${
-                    escapeSkill === "ath"
-                        ? "Athletics"
-                        : "Acrobatics"
-                }`
-            );
+            const escapeRoll =
+                await this.rollSkill(
+                    actor,
+                    escapeSkill,
+                    `Escape Grapple — ${
+                        escapeSkill === "ath"
+                            ? "Athletics"
+                            : "Acrobatics"
+                    }`
+                );
 
             if (!escapeRoll) return;
 
-            const grapplerRoll = await this.rollSkill(
-                grappler,
-                "ath",
-                "Escape Grapple — Grappler Athletics"
-            );
+            const grapplerRoll =
+                await this.rollSkill(
+                    grappler,
+                    "ath",
+                    "Escape Grapple — Grappler Athletics"
+                );
 
             if (!grapplerRoll) return;
 
-            const escapeTotal = Number(
-                escapeRoll.total ?? 0
-            );
+            const escapeTotal =
+                Number(
+                    escapeRoll.total ?? 0
+                );
 
-            const grapplerTotal = Number(
-                grapplerRoll.total ?? 0
-            );
+            const grapplerTotal =
+                Number(
+                    grapplerRoll.total ?? 0
+                );
 
             console.log(
                 "%c[ALTERNATE ATTACKS] ESCAPE GRAPPLE CONTEST",
@@ -1045,11 +1296,14 @@ initSocket() {
                 }
             );
 
-            if (escapeTotal > grapplerTotal) {
+            if (
+                escapeTotal > grapplerTotal
+            ) {
 
-                const removed = await this.requestRemoveGrappled(
-                    actor
-                );
+                const removed =
+                    await this.requestRemoveGrappled(
+                        actor
+                    );
 
                 if (removed === false) {
 
@@ -1100,7 +1354,13 @@ initSocket() {
         // SKILL-CHOICE DIALOG
         // ========================================================
 
-        async chooseSkill(actor, { title, prompt }) {
+        async chooseSkill(
+            actor,
+            {
+                title,
+                prompt
+            }
+        ) {
 
             return new Promise(resolve => {
 
@@ -1131,20 +1391,29 @@ initSocket() {
                     buttons: {
 
                         athletics: {
+
                             label: "Athletics",
-                            callback: () => finish("ath")
+
+                            callback: () =>
+                                finish("ath")
+
                         },
 
                         acrobatics: {
+
                             label: "Acrobatics",
-                            callback: () => finish("acr")
+
+                            callback: () =>
+                                finish("acr")
+
                         }
 
                     },
 
                     default: "athletics",
 
-                    close: () => finish(null)
+                    close: () =>
+                        finish(null)
 
                 }).render(true);
 
@@ -1156,9 +1425,14 @@ initSocket() {
         // ROLL SKILL
         // ========================================================
 
-        async rollSkill(actor, skillId, flavor) {
+        async rollSkill(
+            actor,
+            skillId,
+            flavor
+        ) {
 
-            const skill = actor.system?.skills?.[skillId];
+            const skill =
+                actor.system?.skills?.[skillId];
 
             if (!skill) {
 
@@ -1174,19 +1448,24 @@ initSocket() {
 
             }
 
-            const bonus = Number(
-                skill.total ?? skill.bonus ?? 0
-            );
+            const bonus =
+                Number(
+                    skill.total ??
+                    skill.bonus ??
+                    0
+                );
 
-            const roll = await new Roll(
-                `1d20 + ${bonus}`
-            ).evaluate();
+            const roll =
+                await new Roll(
+                    `1d20 + ${bonus}`
+                ).evaluate();
 
             await roll.toMessage({
 
-                speaker: ChatMessage.getSpeaker({
-                    actor
-                }),
+                speaker:
+                    ChatMessage.getSpeaker({
+                        actor
+                    }),
 
                 flavor:
                     `<strong>${actor.name}</strong> — ${flavor}`
@@ -1250,12 +1529,20 @@ initSocket() {
                 [
                     {
                         name: "Grappled",
-                        statuses: [CONDITION_ID],
+
+                        statuses: [
+                            CONDITION_ID
+                        ],
+
                         flags: {
+
                             core: {
-                                statusId: CONDITION_ID
+                                statusId:
+                                    CONDITION_ID
                             }
+
                         }
+
                     }
                 ]
             );
@@ -1277,7 +1564,9 @@ initSocket() {
                 "function"
             ) {
 
-                if (this._hasCondition(actor)) {
+                if (
+                    this._hasCondition(actor)
+                ) {
 
                     await actor.toggleStatusEffect(
                         CONDITION_ID,
@@ -1299,12 +1588,19 @@ initSocket() {
             }
 
             const grappleEffects =
-                actor.effects?.filter(effect =>
-                    this._isConditionEffect(effect)
+                actor.effects?.filter(
+                    effect =>
+                        this._isConditionEffect(
+                            effect
+                        )
                 ) ?? [];
 
-            for (const effect of grappleEffects) {
+            for (
+                const effect of grappleEffects
+            ) {
+
                 await effect.delete();
+
             }
 
             console.log(
@@ -1318,17 +1614,25 @@ initSocket() {
         _isConditionEffect(effect) {
 
             return (
-                effect.statuses?.has?.(CONDITION_ID) ||
-                effect.flags?.core?.statusId === CONDITION_ID
+                effect.statuses?.has?.(
+                    CONDITION_ID
+                ) ||
+                effect.flags?.core?.statusId ===
+                    CONDITION_ID
             );
 
         },
 
         _hasCondition(actor) {
 
-            return actor.effects?.some(effect =>
-                this._isConditionEffect(effect)
-            ) ?? false;
+            return (
+                actor.effects?.some(
+                    effect =>
+                        this._isConditionEffect(
+                            effect
+                        )
+                ) ?? false
+            );
 
         },
 
@@ -1336,7 +1640,10 @@ initSocket() {
         // RELATIONSHIP TRACKING
         // ========================================================
 
-        addGrappleRelationship(grappler, target) {
+        addGrappleRelationship(
+            grappler,
+            target
+        ) {
 
             if (!grappler || !target) return;
 
@@ -1354,8 +1661,11 @@ initSocket() {
                 "%c[ALTERNATE ATTACKS] GRAPPLE RELATIONSHIP CREATED",
                 "color: lime; font-weight: bold;",
                 {
-                    grappler: grappler.name,
-                    target: target.name
+                    grappler:
+                        grappler.name,
+
+                    target:
+                        target.name
                 }
             );
 
@@ -1366,11 +1676,17 @@ initSocket() {
             if (!actor) return null;
 
             const grapplerId =
-                this.grappledBy.get(actor.id);
+                this.grappledBy.get(
+                    actor.id
+                );
 
             if (!grapplerId) return null;
 
-            return game.actors?.get(grapplerId) ?? null;
+            return (
+                game.actors?.get(
+                    grapplerId
+                ) ?? null
+            );
 
         },
 
@@ -1379,31 +1695,48 @@ initSocket() {
             if (!actor) return null;
 
             const targetId =
-                this.grapplers.get(actor.id);
+                this.grapplers.get(
+                    actor.id
+                );
 
             if (!targetId) return null;
 
-            return game.actors?.get(targetId) ?? null;
+            return (
+                game.actors?.get(
+                    targetId
+                ) ?? null
+            );
 
         },
 
-        removeGrappleRelationship(grappler, target) {
+        removeGrappleRelationship(
+            grappler,
+            target
+        ) {
 
             if (!grappler || !target) return;
 
             if (
-                this.grapplers.get(grappler.id) === target.id
+                this.grapplers.get(
+                    grappler.id
+                ) === target.id
             ) {
 
-                this.grapplers.delete(grappler.id);
+                this.grapplers.delete(
+                    grappler.id
+                );
 
             }
 
             if (
-                this.grappledBy.get(target.id) === grappler.id
+                this.grappledBy.get(
+                    target.id
+                ) === grappler.id
             ) {
 
-                this.grappledBy.delete(target.id);
+                this.grappledBy.delete(
+                    target.id
+                );
 
             }
 
@@ -1411,8 +1744,11 @@ initSocket() {
                 "%c[ALTERNATE ATTACKS] GRAPPLE RELATIONSHIP REMOVED",
                 "color: cyan; font-weight: bold;",
                 {
-                    grappler: grappler.name,
-                    target: target.name
+                    grappler:
+                        grappler.name,
+
+                    target:
+                        target.name
                 }
             );
 
@@ -1422,21 +1758,35 @@ initSocket() {
         // DRAG-ALONG MOVEMENT + DOUBLE MOVEMENT COST
         // ========================================================
 
-        handleGrapplerMoved(tokenDoc, movement) {
+        handleGrapplerMoved(
+            tokenDoc,
+            movement
+        ) {
 
-            const actor = tokenDoc.actor;
+            const actor =
+                tokenDoc.actor;
 
             if (!actor) return;
 
-            if (!this.grapplers.has(actor.id)) return;
+            if (
+                !this.grapplers.has(
+                    actor.id
+                )
+            ) {
+                return;
+            }
 
-            const cost = Number(
-                movement?.passed?.cost ?? 0
-            );
+            const cost =
+                Number(
+                    movement?.passed?.cost ??
+                    0
+                );
 
-            const distance = Number(
-                movement?.passed?.distance ?? 0
-            );
+            const distance =
+                Number(
+                    movement?.passed?.distance ??
+                    0
+                );
 
             if (cost > 0) {
 
@@ -1457,31 +1807,60 @@ initSocket() {
 
             }
 
-            const origin = movement?.origin;
-            const destination = movement?.destination;
+            const origin =
+                movement?.origin;
 
-            if (!origin || !destination) return;
+            const destination =
+                movement?.destination;
+
+            if (
+                !origin ||
+                !destination
+            ) {
+                return;
+            }
 
             const deltaX =
-                Number(destination.x ?? 0) -
-                Number(origin.x ?? 0);
+                Number(
+                    destination.x ?? 0
+                ) -
+                Number(
+                    origin.x ?? 0
+                );
 
             const deltaY =
-                Number(destination.y ?? 0) -
-                Number(origin.y ?? 0);
+                Number(
+                    destination.y ?? 0
+                ) -
+                Number(
+                    origin.y ?? 0
+                );
 
-            if (deltaX === 0 && deltaY === 0) return;
+            if (
+                deltaX === 0 &&
+                deltaY === 0
+            ) {
+                return;
+            }
 
             const targetActorId =
-                this.grapplers.get(actor.id);
+                this.grapplers.get(
+                    actor.id
+                );
 
             const targetActor =
-                game.actors?.get(targetActorId);
+                game.actors?.get(
+                    targetActorId
+                );
 
             if (!targetActor) return;
 
             const targetToken =
-                targetActor.getActiveTokens(false, true)[0];
+                targetActor
+                    .getActiveTokens(
+                        false,
+                        true
+                    )[0];
 
             if (!targetToken) {
 
@@ -1495,8 +1874,13 @@ initSocket() {
 
             targetToken.update({
 
-                x: targetToken.x + deltaX,
-                y: targetToken.y + deltaY
+                x:
+                    targetToken.x +
+                    deltaX,
+
+                y:
+                    targetToken.y +
+                    deltaY
 
             }).catch(error => {
 
@@ -1511,8 +1895,12 @@ initSocket() {
                 "%c[ALTERNATE ATTACKS] DRAGGED TARGET",
                 "color: gold; font-weight: bold;",
                 {
-                    grappler: actor.name,
-                    target: targetActor.name,
+                    grappler:
+                        actor.name,
+
+                    target:
+                        targetActor.name,
+
                     deltaX,
                     deltaY
                 }
@@ -1522,7 +1910,10 @@ initSocket() {
 
     };
 
-    // Register immediately.
+    // ============================================================
+    // REGISTER IMMEDIATELY
+    // ============================================================
+
     globalThis.alternateAttacks.init();
 
     console.log(
