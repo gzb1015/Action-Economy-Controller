@@ -91,45 +91,86 @@ if (globalThis.alternateAttacks) {
 
             }
 
-            Hooks.once("socketlib.ready", () => {
-
-                this.socket = socketlib.registerModule(
-                    "action-economy-controller"
-                );
-
-                this.socket.register(
-                    "chooseGrappleSkill",
-                    this._socketChooseGrappleSkill.bind(this)
-                );
-
-                this.socket.register(
-                    "applyGrappled",
-                    this._socketApplyGrappled.bind(this)
-                );
-
-                this.socket.register(
-                    "removeGrappled",
-                    this._socketRemoveGrappled.bind(this)
-                );
-
-                this.socket.register(
-                    "setGrappleRelationship",
-                    this._socketSetGrappleRelationship.bind(this)
-                );
-
-                this.socket.register(
-                    "clearGrappleRelationship",
-                    this._socketClearGrappleRelationship.bind(this)
-                );
-
-                this.socketReady = true;
+            // Prevent duplicate registration.
+            if (this.socketReady && this.socket) {
 
                 console.log(
-                    "%c[ALTERNATE ATTACKS] socketlib ready.",
-                    "color: lime; font-weight: bold;"
+                    "[ALTERNATE ATTACKS] socketlib already initialized."
                 );
 
-            });
+                return;
+
+            }
+
+            const registerSocket = () => {
+
+                // Prevent duplicate registration if the callback
+                // somehow runs more than once.
+                if (this.socketReady && this.socket) return;
+
+                try {
+
+                    this.socket = socketlib.registerModule(
+                        "action-economy-controller"
+                    );
+        
+                    this.socket.register(
+                        "chooseGrappleSkill",
+                        this._socketChooseGrappleSkill.bind(this)
+                    );
+
+                    this.socket.register(
+                        "applyGrappled",
+                        this._socketApplyGrappled.bind(this)
+                    );
+
+                    this.socket.register(
+                        "removeGrappled",
+                        this._socketRemoveGrappled.bind(this)
+                    );
+
+                    this.socket.register(
+                        "setGrappleRelationship",
+                        this._socketSetGrappleRelationship.bind(this)
+                    );
+
+                    this.socket.register(
+                        "clearGrappleRelationship",
+                        this._socketClearGrappleRelationship.bind(this)
+                    );
+
+                    this.socketReady = true;
+
+                    console.log(
+                        "%c[ALTERNATE ATTACKS] socketlib ready.",
+                        "color: lime; font-weight: bold;"
+                    );
+
+                } catch (error) {
+
+                    console.error(
+                        "[ALTERNATE ATTACKS] Failed to initialize socketlib:",
+                        error
+                    );
+
+                    this.socket = null;
+                    this.socketReady = false;
+
+                }
+
+            };
+
+            // If socketlib is already ready, initialize immediately.
+            if (socketlib.ready) {
+        
+                registerSocket();
+
+            } else {
+
+                // Otherwise wait for the ready hook.
+                Hooks.once("socketlib.ready", registerSocket);
+
+            }
 
         },
 
