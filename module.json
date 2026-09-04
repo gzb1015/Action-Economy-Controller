@@ -3,6 +3,7 @@
   "title": "Action Economy Controller",
   "description": "Action, Bonus Action, Reaction, and Movement tracking for Foundry VTT.",
   "version": "1.5.2",
+  "socket": true,
   "type": "module",
   "authors": [
     {
