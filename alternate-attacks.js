@@ -17,6 +17,11 @@ if (globalThis.alternateAttacks) {
 
     const CONDITION_ID = "grappled";
 
+    // Unique flag used to identify Monk's TokenBar contests
+    // created by this module.
+    const GRAPPLE_CONTEST_FLAG =
+        "action-economy-controller.grappleContest";
+
     globalThis.alternateAttacks = {
 
         // ========================================================
@@ -30,6 +35,10 @@ if (globalThis.alternateAttacks) {
         socketReady: false,
 
         endingGrapples: new Set(),
+
+        // Tracks Grapple contests currently waiting for
+        // Monk's TokenBar to finish.
+        pendingGrappleContests: new Map(),
 
         // ========================================================
         // INIT
@@ -76,6 +85,22 @@ if (globalThis.alternateAttacks) {
                     this.handleGrapplerMoved(
                         tokenDoc,
                         movement
+                    )
+            );
+
+            // ====================================================
+            // MONK'S TOKENBAR CONTEST RESULT
+            // ====================================================
+            //
+            // Monk's TokenBar fires this after both sides of a
+            // contested roll have completed.
+            //
+            Hooks.on(
+                "monks-tokenbar.updateContested",
+                (result, message) =>
+                    this.handleMonksTokenBarContestedResult(
+                        result,
+                        message
                     )
             );
 
@@ -324,6 +349,11 @@ if (globalThis.alternateAttacks) {
         // ========================================================
         // SOCKET: TARGET SKILL CHOICE
         // ========================================================
+        //
+        // Kept for the existing escape-grapple system.
+        // Normal Grapple contests now use Monk's TokenBar's
+        // built-in multiple-request choice system instead.
+        //
 
         async requestTargetSkillChoice(
             actor,
@@ -664,60 +694,376 @@ if (globalThis.alternateAttacks) {
 
             }
 
-            const attackerRoll =
-                await this.rollSkill(
-                    actor,
-                    "ath",
-                    "Grapple — Athletics"
+            // ----------------------------------------------------
+            // Monk's TokenBar contested roll
+            // ----------------------------------------------------
+            //
+            // Attacker:
+            //     Athletics
+            //
+            // Defender:
+            //     Athletics OR Acrobatics
+            //
+            // Monk's TokenBar handles the player-facing choice
+            // and normal dnd5e roll mechanics.
+            // ----------------------------------------------------
+
+            await this.startMonksTokenBarGrapple(
+                actor,
+                target
+            );
+
+        },
+
+        // ========================================================
+        // MONK'S TOKENBAR GRAPPLE
+        // ========================================================
+
+        async startMonksTokenBarGrapple(
+            attacker,
+            targetToken
+        ) {
+
+            if (!attacker || !targetToken) {
+                return;
+            }
+
+            const targetActor =
+                targetToken.actor;
+
+            if (!targetActor) {
+                return;
+            }
+
+            // ----------------------------------------------------
+            // Verify Monk's TokenBar is available.
+            // ----------------------------------------------------
+
+            const monksTokenBar =
+                game.MonksTokenBar;
+
+            if (
+                !monksTokenBar ||
+                typeof monksTokenBar.requestContestedRoll !==
+                    "function"
+            ) {
+
+                ui.notifications.error(
+                    "Grapple requires Monk's TokenBar to be active."
                 );
 
-            if (!attackerRoll) return;
-
-            const targetSkill =
-                await this.requestTargetSkillChoice(
-                    targetActor,
-                    {
-                        title: "Grapple Defense",
-                        prompt:
-                            "must choose a skill to resist the grapple."
-                    }
+                console.error(
+                    "[ALTERNATE ATTACKS] Monk's TokenBar contested-roll API unavailable."
                 );
 
-            if (!targetSkill) return;
+                return;
 
-            const targetRoll =
-                await this.rollSkill(
-                    targetActor,
-                    targetSkill,
-                    `Grapple — ${
-                        targetSkill === "ath"
-                            ? "Athletics"
-                            : "Acrobatics"
-                    }`
+            }
+
+            // ----------------------------------------------------
+            // We need actual tokens for the contested roll.
+            // ----------------------------------------------------
+
+            const attackerToken =
+                attacker.getActiveTokens(
+                    false,
+                    true
+                )[0];
+
+            if (!attackerToken) {
+
+                ui.notifications.error(
+                    `${attacker.name} does not have an active token.`
                 );
 
-            if (!targetRoll) return;
-
-            const attackerTotal =
-                Number(
-                    attackerRoll.total ?? 0
+                console.error(
+                    "[ALTERNATE ATTACKS] Could not find attacker token."
                 );
 
-            const targetTotal =
-                Number(
-                    targetRoll.total ?? 0
-                );
+                return;
 
-            console.log(
-                "%c[ALTERNATE ATTACKS] GRAPPLE CONTEST",
-                "color: gold; font-weight: bold;",
+            }
+
+            // ----------------------------------------------------
+            // Generate a unique identifier for this contest.
+            // ----------------------------------------------------
+
+            const contestId =
+                foundry.utils.randomID();
+
+            this.pendingGrappleContests.set(
+                contestId,
                 {
-                    attacker: attackerTotal,
-                    target: targetTotal
+                    attackerId: attacker.id,
+                    targetId: targetActor.id,
+                    attackerTokenId: attackerToken.id,
+                    targetTokenId: targetToken.id
                 }
             );
 
-            if (attackerTotal > targetTotal) {
+            // ----------------------------------------------------
+            // IMPORTANT:
+            //
+            // Monk's TokenBar supports request arrays.
+            //
+            // The defender therefore receives:
+            //     Athletics
+            //     Acrobatics
+            //
+            // and chooses between them when rolling.
+            // ----------------------------------------------------
+
+            const attackerRequest = {
+
+                type: "skill",
+
+                key: "ath",
+
+                slug: "skill:ath"
+
+            };
+
+            const defenderRequest = [
+
+                {
+
+                    type: "skill",
+
+                    key: "ath",
+
+                    slug: "skill:ath"
+
+                },
+
+                {
+
+                    type: "skill",
+
+                    key: "acr",
+
+                    slug: "skill:acr"
+
+                }
+
+            ];
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] STARTING MONK'S TOKENBAR GRAPPLE CONTEST",
+                "color: gold; font-weight: bold;",
+                {
+                    contestId,
+                    attacker: attacker.name,
+                    target: targetActor.name,
+                    attackerRequest,
+                    defenderRequest
+                }
+            );
+
+            try {
+
+                await monksTokenBar.requestContestedRoll(
+
+                    {
+                        token: attackerToken,
+
+                        request: attackerRequest
+
+                    },
+
+                    {
+                        token: targetToken,
+
+                        request: defenderRequest
+
+                    },
+
+                    {
+
+                        silent: true,
+
+                        fastForward: false,
+
+                        rollMode: "roll",
+
+                        callback: null,
+
+                        [GRAPPLE_CONTEST_FLAG]: contestId
+
+                    }
+
+                );
+
+            } catch (error) {
+
+                this.pendingGrappleContests.delete(
+                    contestId
+                );
+
+                console.error(
+                    "[ALTERNATE ATTACKS] Failed to start Monk's TokenBar Grapple contest:",
+                    error
+                );
+
+                ui.notifications.error(
+                    "Could not start the Grapple contest."
+                );
+
+            }
+
+        },
+
+        // ========================================================
+        // MONK'S TOKENBAR CONTEST RESULT
+        // ========================================================
+
+        async handleMonksTokenBarContestedResult(
+            result,
+            message
+        ) {
+
+            if (!result || !message) {
+                return;
+            }
+
+            // ----------------------------------------------------
+            // The options object passed to Monk's TokenBar is
+            // stored on the chat message.
+            // ----------------------------------------------------
+
+            const options =
+                message.getFlag(
+                    "monks-tokenbar",
+                    "options"
+                );
+
+            const contestId =
+                options?.[GRAPPLE_CONTEST_FLAG];
+
+            if (!contestId) {
+                return;
+            }
+
+            const contest =
+                this.pendingGrappleContests.get(
+                    contestId
+                );
+
+            if (!contest) {
+
+                console.warn(
+                    "[ALTERNATE ATTACKS] Received Grapple contest result but no matching pending contest exists.",
+                    contestId
+                );
+
+                return;
+
+            }
+
+            // ----------------------------------------------------
+            // Remove it immediately so the result cannot be
+            // processed twice.
+            // ----------------------------------------------------
+
+            this.pendingGrappleContests.delete(
+                contestId
+            );
+
+            const tokenResults =
+                result.tokenresults ?? [];
+
+            const attackerResult =
+                tokenResults.find(
+                    token =>
+                        token.id ===
+                        contest.attackerTokenId
+                );
+
+            const defenderResult =
+                tokenResults.find(
+                    token =>
+                        token.id ===
+                        contest.targetTokenId
+                );
+
+            if (
+                !attackerResult ||
+                !defenderResult
+            ) {
+
+                console.error(
+                    "[ALTERNATE ATTACKS] Grapple contest completed but could not identify both participants.",
+                    {
+                        contest,
+                        result
+                    }
+                );
+
+                return;
+
+            }
+
+            const attackerTotal =
+                Number(
+                    attackerResult.roll?.total ??
+                    0
+                );
+
+            const defenderTotal =
+                Number(
+                    defenderResult.roll?.total ??
+                    0
+                );
+
+            const attacker =
+                game.actors.get(
+                    contest.attackerId
+                );
+
+            const targetActor =
+                game.actors.get(
+                    contest.targetId
+                );
+
+            if (!attacker || !targetActor) {
+
+                console.error(
+                    "[ALTERNATE ATTACKS] Grapple contest participants no longer exist.",
+                    contest
+                );
+
+                return;
+
+            }
+
+            // ----------------------------------------------------
+            // GRAPPLE RULE:
+            //
+            // Attacker must strictly beat defender.
+            //
+            // Attacker > Defender = SUCCESS
+            // Attacker <= Defender = FAILURE
+            //
+            // Therefore a tie goes to the defender.
+            // ----------------------------------------------------
+
+            const success =
+                attackerTotal > defenderTotal;
+
+            console.log(
+                "%c[ALTERNATE ATTACKS] GRAPPLE CONTEST COMPLETE",
+                "color: gold; font-weight: bold;",
+                {
+                    attacker: attacker.name,
+                    attackerTotal,
+
+                    defender: targetActor.name,
+                    defenderTotal,
+
+                    success
+                }
+            );
+
+            if (success) {
 
                 const applied =
                     await this.requestApplyGrappled(
@@ -727,7 +1073,7 @@ if (globalThis.alternateAttacks) {
                 if (applied === false) {
 
                     ui.notifications.error(
-                        `Could not apply Grappled to ${target.name}.`
+                        `Could not apply Grappled to ${targetActor.name}.`
                     );
 
                     return;
@@ -735,34 +1081,38 @@ if (globalThis.alternateAttacks) {
                 }
 
                 await this.syncGrappleRelationship(
-                    actor,
+                    attacker,
                     targetActor
                 );
 
                 ui.notifications.info(
-                    `${actor.name} successfully grappled ${target.name}.`
+                    `${attacker.name} successfully grappled ${targetActor.name}.`
                 );
 
                 console.log(
                     "%c[ALTERNATE ATTACKS] GRAPPLE SUCCESS",
                     "color: lime; font-weight: bold;",
-                    actor.name,
+                    attacker.name,
+                    `(${attackerTotal})`,
                     "→",
-                    target.name
+                    targetActor.name,
+                    `(${defenderTotal})`
                 );
 
             } else {
 
                 ui.notifications.info(
-                    `${actor.name} failed to grapple ${target.name}.`
+                    `${attacker.name} failed to grapple ${targetActor.name}.`
                 );
 
                 console.log(
                     "%c[ALTERNATE ATTACKS] GRAPPLE FAILED",
                     "color: red; font-weight: bold;",
-                    actor.name,
-                    "→",
-                    target.name
+                    attacker.name,
+                    `(${attackerTotal})`,
+                    "vs",
+                    targetActor.name,
+                    `(${defenderTotal})`
                 );
 
             }
@@ -1353,6 +1703,9 @@ if (globalThis.alternateAttacks) {
         // ========================================================
         // SKILL-CHOICE DIALOG
         // ========================================================
+        //
+        // Still used by Escape Grapple.
+        //
 
         async chooseSkill(
             actor,
@@ -1424,6 +1777,9 @@ if (globalThis.alternateAttacks) {
         // ========================================================
         // ROLL SKILL
         // ========================================================
+        //
+        // Still used by Escape Grapple.
+        //
 
         async rollSkill(
             actor,
