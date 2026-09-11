@@ -15,8 +15,8 @@
     "verified": "13"
   },
   "esmodules": [
-    "alternate-attacks.js",
     "grapple.js",
+    "action-economy.js",
     "movement-tracker.js",
     "tracker-ui.js",
     "alternate-movement.js",
